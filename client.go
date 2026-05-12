@@ -31,7 +31,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webscraping-ai/webscraping-ai-go/internal/query"
+	"github.com/webscraping-ai/webscraping-ai-go/v4/internal/query"
 )
 
 // DefaultBaseURL is the production API base URL.

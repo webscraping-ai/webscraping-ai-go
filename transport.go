@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/webscraping-ai/webscraping-ai-go/internal/query"
+	"github.com/webscraping-ai/webscraping-ai-go/v4/internal/query"
 )
 
 // do executes a GET request for path with the encoded params and

@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	webscrapingai "github.com/webscraping-ai/webscraping-ai-go"
+	webscrapingai "github.com/webscraping-ai/webscraping-ai-go/v4"
 )
 
 func main() {

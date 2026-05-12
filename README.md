@@ -1,15 +1,21 @@
 # webscraping-ai-go
 
 [![CI](https://github.com/webscraping-ai/webscraping-ai-go/actions/workflows/ci.yml/badge.svg)](https://github.com/webscraping-ai/webscraping-ai-go/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/webscraping-ai/webscraping-ai-go.svg)](https://pkg.go.dev/github.com/webscraping-ai/webscraping-ai-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/webscraping-ai/webscraping-ai-go/v4.svg)](https://pkg.go.dev/github.com/webscraping-ai/webscraping-ai-go/v4)
 
 Official Go client for the [WebScraping.AI](https://webscraping.ai) API.
 
 ## Install
 
 ```bash
-go get github.com/webscraping-ai/webscraping-ai-go@latest
+go get github.com/webscraping-ai/webscraping-ai-go/v4@latest
 ```
+
+The `/v4` suffix in the import path is Go's
+[semantic import versioning](https://go.dev/ref/mod#major-version-suffixes)
+convention for modules at major version ≥ 2. The version line is kept
+in lockstep with the other WebScraping.AI SDKs (Ruby, Python, PHP,
+JavaScript — all at 4.0.x).
 
 Requires Go 1.22 or newer. Zero runtime dependencies — uses the standard
 library's `net/http`.
@@ -24,7 +30,7 @@ import (
     "fmt"
     "log"
 
-    webscrapingai "github.com/webscraping-ai/webscraping-ai-go"
+    webscrapingai "github.com/webscraping-ai/webscraping-ai-go/v4"
 )
 
 func main() {
