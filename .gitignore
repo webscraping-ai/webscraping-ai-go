@@ -1,0 +1,17 @@
+# Binaries
+*.test
+*.out
+bin/
+dist/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
