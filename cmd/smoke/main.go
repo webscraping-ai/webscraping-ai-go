@@ -44,7 +44,8 @@ func main() {
 			if err != nil {
 				return "", err
 			}
-			return fmt.Sprintf("email=%s remaining=%d", info.Email, info.RemainingAPICalls), nil
+			return fmt.Sprintf("email=%s remaining=%d resets_at=%d concurrency=%d",
+				info.Email, info.RemainingAPICalls, info.ResetsAt, info.RemainingConcurrency), nil
 		}},
 		{"html", func() (string, error) {
 			return client.HTML(ctx, &webscrapingai.HTMLOptions{URL: target})

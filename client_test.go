@@ -93,7 +93,7 @@ func TestNewClient_BaseURLTrimsTrailingSlashes(t *testing.T) {
 func TestClient_Account(t *testing.T) {
 	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"email":"vlad@example.com","remaining_api_calls":12345,"resumes_at":"2026-06-01T00:00:00Z"}`))
+		_, _ = w.Write([]byte(`{"email":"vlad@example.com","remaining_api_calls":12345,"resets_at":1780358400,"remaining_concurrency":7}`))
 	})
 	defer srv.Close()
 	c := newTestClient(t, srv)
@@ -102,7 +102,8 @@ func TestClient_Account(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
-	if info.Email != "vlad@example.com" || info.RemainingAPICalls != 12345 {
+	if info.Email != "vlad@example.com" || info.RemainingAPICalls != 12345 ||
+		info.ResetsAt != 1780358400 || info.RemainingConcurrency != 7 {
 		t.Fatalf("unexpected AccountInfo: %+v", info)
 	}
 	if cap.Path != "/account" {
@@ -226,6 +227,26 @@ func TestClient_Selected(t *testing.T) {
 	}
 }
 
+func TestClient_Selected_OptionalSelector(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("<html>ok</html>"))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Selected(context.Background(), &SelectedOptions{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("Selected: %v", err)
+	}
+	if out != "<html>ok</html>" {
+		t.Fatalf("got %q", out)
+	}
+	// With no selector, the param must be omitted entirely.
+	if strings.Contains(cap.RawQuery, "selector=") {
+		t.Fatalf("selector should be omitted: %q", cap.RawQuery)
+	}
+}
+
 // --- SelectedMultiple -------------------------------------------------
 
 func TestClient_SelectedMultiple(t *testing.T) {
@@ -249,6 +270,27 @@ func TestClient_SelectedMultiple(t *testing.T) {
 	// Selectors must repeat the same key without brackets.
 	if !strings.Contains(cap.RawQuery, "selectors=h1&selectors=p") {
 		t.Fatalf("RawQuery = %q", cap.RawQuery)
+	}
+}
+
+func TestClient_SelectedMultiple_OptionalSelectors(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[["whole page"]]`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.SelectedMultiple(context.Background(), &SelectedMultipleOptions{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("SelectedMultiple: %v", err)
+	}
+	if len(out) != 1 || len(out[0]) != 1 || out[0][0] != "whole page" {
+		t.Fatalf("unexpected shape: %+v", out)
+	}
+	// With no selectors, the param must be omitted entirely.
+	if strings.Contains(cap.RawQuery, "selectors=") {
+		t.Fatalf("selectors should be omitted: %q", cap.RawQuery)
 	}
 }
 
@@ -310,11 +352,11 @@ func TestClient_MissingURL(t *testing.T) {
 	if _, err := c.Text(context.Background(), &TextOptions{}); err == nil {
 		t.Error("Text should require URL")
 	}
-	if _, err := c.Selected(context.Background(), &SelectedOptions{URL: "x"}); err == nil {
-		t.Error("Selected should require Selector")
+	if _, err := c.Selected(context.Background(), &SelectedOptions{}); err == nil {
+		t.Error("Selected should require URL")
 	}
-	if _, err := c.SelectedMultiple(context.Background(), &SelectedMultipleOptions{URL: "x"}); err == nil {
-		t.Error("SelectedMultiple should require Selectors")
+	if _, err := c.SelectedMultiple(context.Background(), &SelectedMultipleOptions{}); err == nil {
+		t.Error("SelectedMultiple should require URL")
 	}
 	if _, err := c.Question(context.Background(), &QuestionOptions{URL: "x"}); err == nil {
 		t.Error("Question should require Question")

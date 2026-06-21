@@ -50,8 +50,10 @@ type Config struct {
 	// BaseURL overrides the API base URL. Defaults to DefaultBaseURL.
 	BaseURL string
 	// Timeout sets a fallback per-request timeout used when the caller
-	// passes a context without a deadline. Defaults to DefaultTimeout.
-	// Use 0 to disable the implicit timeout entirely.
+	// passes a context without a deadline. Zero (the default value)
+	// selects DefaultTimeout (60s). A negative value disables the
+	// implicit timeout entirely (the caller manages deadlines via
+	// context). A positive value sets the timeout directly.
 	Timeout time.Duration
 	// HTTPClient lets callers inject their own *http.Client (for custom
 	// transports, retries, metrics, etc.). Defaults to a fresh
@@ -157,15 +159,18 @@ func (c *Client) Text(ctx context.Context, opts *TextOptions) (string, error) {
 }
 
 // Selected calls GET /selected and returns the matched element's HTML.
+//
+// opts.Selector is optional; when empty the API returns the whole-page
+// HTML (subject to the other options).
 func (c *Client) Selected(ctx context.Context, opts *SelectedOptions) (string, error) {
-	if opts == nil || opts.URL == "" || opts.Selector == "" {
-		return "", errors.New("webscrapingai: Selected requires opts.URL and opts.Selector")
+	if opts == nil || opts.URL == "" {
+		return "", errors.New("webscrapingai: Selected requires opts.URL")
 	}
 	ctx, cancel := c.contextWithTimeout(ctx)
 	defer cancel()
 	params := commonParams(opts.CommonOptions)
 	params.Set("url", opts.URL)
-	params.Set("selector", opts.Selector)
+	setIfNotEmpty(&params, "selector", opts.Selector)
 	setIfNotEmpty(&params, "format", opts.Format)
 	body, _, err := c.do(ctx, "/selected", params)
 	if err != nil {
@@ -177,15 +182,20 @@ func (c *Client) Selected(ctx context.Context, opts *SelectedOptions) (string, e
 // SelectedMultiple calls GET /selected-multiple and returns the matched
 // elements as [][]string. See SelectedMultipleResult for the response
 // shape — the API returns one outer wrapper, not a flat list.
+//
+// opts.Selectors is optional; when empty the API returns the whole-page
+// HTML (subject to the other options).
 func (c *Client) SelectedMultiple(ctx context.Context, opts *SelectedMultipleOptions) (SelectedMultipleResult, error) {
-	if opts == nil || opts.URL == "" || len(opts.Selectors) == 0 {
-		return nil, errors.New("webscrapingai: SelectedMultiple requires opts.URL and at least one selector")
+	if opts == nil || opts.URL == "" {
+		return nil, errors.New("webscrapingai: SelectedMultiple requires opts.URL")
 	}
 	ctx, cancel := c.contextWithTimeout(ctx)
 	defer cancel()
 	params := commonParams(opts.CommonOptions)
 	params.Set("url", opts.URL)
-	params.Set("selectors", opts.Selectors)
+	if len(opts.Selectors) > 0 {
+		params.Set("selectors", opts.Selectors)
+	}
 	body, _, err := c.do(ctx, "/selected-multiple", params)
 	if err != nil {
 		return nil, err

@@ -6,8 +6,12 @@ type AccountInfo struct {
 	Email string `json:"email"`
 	// RemainingAPICalls is the remaining credit count for the period.
 	RemainingAPICalls int `json:"remaining_api_calls"`
-	// ResumesAt is an ISO timestamp at which the credit quota resets.
-	ResumesAt string `json:"resumes_at"`
+	// ResetsAt is the UNIX timestamp of the next billing cycle start, at
+	// which the remaining API calls quota resets.
+	ResetsAt int `json:"resets_at"`
+	// RemainingConcurrency is the remaining number of concurrent requests
+	// allowed for the account.
+	RemainingConcurrency int `json:"remaining_concurrency"`
 }
 
 // FieldsResult is the parsed response from Client.Fields.
