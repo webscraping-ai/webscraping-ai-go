@@ -3,6 +3,14 @@
 All notable changes to `github.com/webscraping-ai/webscraping-ai-go` are
 documented in this file.
 
+## 4.0.1 — 2026-06-21
+
+### Fixed
+
+- `AccountInfo` now matches the live `/account` response — `ResetsAt` (`resets_at`) and `RemainingConcurrency` (`remaining_concurrency`), replacing the stale `ResumesAt` field.
+- `Selected` and `SelectedMultiple` no longer require a selector; omitting it returns whole-page HTML, matching the API.
+- Corrected the `Config.Timeout` GoDoc: zero selects the 60s default and a negative value disables the implicit timeout (it previously claimed zero disables it).
+
 ## 4.0.0 — 2026-05-12
 
 First release of the official Go client.
