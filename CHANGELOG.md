@@ -3,6 +3,12 @@
 All notable changes to `github.com/webscraping-ai/webscraping-ai-go` are
 documented in this file.
 
+## 4.0.2 — 2026-07-17
+
+### Changed
+
+- Documentation: expanded README — API docs, signup/dashboard links, badges, and links to the other official clients.
+
 ## 4.0.1 — 2026-06-21
 
 ### Fixed

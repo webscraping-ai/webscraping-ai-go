@@ -3,7 +3,11 @@
 [![CI](https://github.com/webscraping-ai/webscraping-ai-go/actions/workflows/ci.yml/badge.svg)](https://github.com/webscraping-ai/webscraping-ai-go/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/webscraping-ai/webscraping-ai-go/v4.svg)](https://pkg.go.dev/github.com/webscraping-ai/webscraping-ai-go/v4)
 
-Official Go client for the [WebScraping.AI](https://webscraping.ai) API.
+Official Go client for the [WebScraping.AI](https://webscraping.ai) API —
+web scraping with Chromium JavaScript rendering, rotating
+datacenter/residential/stealth proxies, and AI-powered question answering and
+structured field extraction on any page. See the
+[API documentation](https://webscraping.ai/docs) for the full parameter reference.
 
 ## Install
 
@@ -21,6 +25,10 @@ Requires Go 1.22 or newer. Zero runtime dependencies — uses the standard
 library's `net/http`.
 
 ## Quick start
+
+[Sign up](https://webscraping.ai/auth/sign_up) to get an API key — the free
+trial includes 2,000 credits, no credit card required. Your key lives in the
+[dashboard](https://webscraping.ai/dashboard).
 
 ```go
 package main
@@ -187,6 +195,14 @@ gofmt -l .              # any output → unformatted files
 # Live smoke (hits production, costs ~17 credits):
 WEBSCRAPING_AI_API_KEY=... go run ./cmd/smoke
 ```
+
+## Links
+
+- [WebScraping.AI](https://webscraping.ai) — features, pricing, signup
+- [API documentation](https://webscraping.ai/docs)
+- [Dashboard](https://webscraping.ai/dashboard) — API key, usage, request builder
+- Other official clients: [Python](https://github.com/webscraping-ai/webscraping-ai-python) · [JavaScript](https://github.com/webscraping-ai/webscraping-ai-js) · [Ruby](https://github.com/webscraping-ai/webscraping-ai-ruby) · [PHP](https://github.com/webscraping-ai/webscraping-ai-php) · [Java](https://github.com/webscraping-ai/webscraping-ai-java) · [.NET](https://github.com/webscraping-ai/webscraping-ai-dotnet) · [CLI](https://github.com/webscraping-ai/webscraping-ai-cli) · [MCP server](https://github.com/webscraping-ai/webscraping-ai-mcp-server) · [n8n node](https://github.com/webscraping-ai/webscraping-ai-n8n)
+- Support: [support@webscraping.ai](mailto:support@webscraping.ai)
 
 ## License
 
