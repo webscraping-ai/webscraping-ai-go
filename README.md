@@ -136,9 +136,9 @@ of a URL. None of the page-scraping options (JS, proxy, country, …)
 apply. Flat 15 credits per search; failed searches are not charged.
 
 `Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1
-before sending anything — the server would otherwise silently treat an
-invalid page as page 1 and still charge for it. The server caps `Page`
-at 100.
+before sending anything. The server also rejects an invalid page with a
+400 (not billed); checking client-side saves the round trip. Pages are
+1–100: the server rejects a `Page` above 100 with a 400.
 
 ```go
 page := 2
@@ -147,7 +147,7 @@ serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
     Engine: "google",          // optional, default "google" (only engine today)
     GL:     "de",              // optional two-letter country, default "us"
     HL:     "de",              // optional two-letter language, default "en"
-    Page:   &page,             // optional, 1-based, 10 results per page (server caps at 100)
+    Page:   &page,             // optional, 1-based, 10 results per page (server rejects > 100 with a 400)
 })
 if err != nil {
     log.Fatal(err)

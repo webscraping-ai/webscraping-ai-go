@@ -9,7 +9,7 @@ documented in this file.
 
 - `Client.Serp` for the new `GET /serp` endpoint: parsed Google search results for a query. Options via `SerpOptions` (`Q` required; `Engine`, `GL`, `HL`, `Page` optional). Returns a typed `*SerpResult` (`SearchParameters`, `SearchInformation`, `OrganicResults`, `RelatedSearches`, `Pagination`); optional response fields are pointers. Flat 15 credits per search; failed searches are not charged.
 - `cmd/smoke` now exercises `Serp`.
-- `Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1 before sending a request; the server would otherwise coerce an invalid page to 1 and still charge. `Q` is sent untrimmed. The server caps `Page` at 100.
+- `Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1 before sending a request; the server also rejects an invalid page with a 400 (not billed), so checking client-side saves the round trip. `Q` is sent untrimmed. Pages are 1–100: the server rejects a `Page` above 100 with a 400.
 - `cmd/smoke` asserts on results (non-empty page output, at least one non-empty `SelectedMultiple` match, `Fields` `result` present, `Serp` organic results and echoed query), runs page tools with `js=false` and the datacenter proxy (~31 credits per sweep), turns panics into FAIL lines, and redacts the API key from output.
 
 ### Fixed

@@ -265,9 +265,10 @@ func (c *Client) Fields(ctx context.Context, opts *FieldsOptions) (*FieldsResult
 // opts.Q. Flat 15 credits per search; failed searches are not charged.
 //
 // opts.Q must not be blank and opts.Page, when set, must be >= 1; both
-// are checked before any request (the server would otherwise coerce an
-// invalid page to 1 and still charge). The server caps Page at 100. Q
-// is sent exactly as given.
+// are checked before any request (the server also rejects an invalid
+// page with a 400, not billed; checking client-side saves the round
+// trip). Pages are 1-100: the server rejects a Page above 100 with a
+// 400. Q is sent exactly as given.
 //
 // Unlike the page endpoints /serp is query-shaped: none of the scraping
 // options (JS, proxy, country, …) apply, so SerpOptions does not embed

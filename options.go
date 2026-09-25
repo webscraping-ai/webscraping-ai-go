@@ -120,6 +120,6 @@ type SerpOptions struct {
 	HL string
 	// Page is the results page number, starting at 1 (10 results per
 	// page). API default: 1. Values below 1 are rejected client-side;
-	// the server caps the page at 100.
+	// the server rejects a page above 100 with a 400 (not billed).
 	Page *int
 }
