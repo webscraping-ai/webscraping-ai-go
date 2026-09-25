@@ -3,6 +3,14 @@
 All notable changes to `github.com/webscraping-ai/webscraping-ai-go` are
 documented in this file.
 
+## 4.2.0 — 2026-09-25
+### Added
+
+- `Client.Data` for the new `GET /data` endpoint: structured JSON for a page on a supported site (e.g. a YouTube video, TikTok profile, X post, LinkedIn company, Instagram reel or Reddit thread). Options via `DataOptions` (`URL` required; `Country`, `Transcript`, `TranscriptLanguage` optional; `Params` for extra query parameters, sent as-is). Returns a `*DataResult` with `RequestParameters` (`URL`, `Provider`, `Type`), `ParseStatus` and `Data` as `json.RawMessage`. A JSON null `data` decodes to nil, including when you unmarshal a `DataResult` yourself. 15 credits per request; failed fetches are not charged.
+- The client doesn't check the site or page type. Only a blank `URL` is rejected before sending. Sites are added on the server, and an unsupported URL or page type returns a 400 that is not charged (`*BadRequestError`). Its message lists what is supported. `Provider`, `Type` and `ParseStatus` are plain strings.
+- `Params` rejects `api_key` and `url` keys (including case and `[...]` variants), and the typed option names `country`, `transcript` and `transcript_language` whether or not the matching field is set (the error names the field to use).
+- `cmd/smoke` runs one `Data` call on a YouTube video (asserting `parse_status` ok, provider youtube and a non-empty title) and checks that the server answers `https://example.com/` with a 400 whose message contains `Unsupported URL` (~46 credits per sweep).
+
 ## 4.1.0 — 2026-09-25
 
 ### Added

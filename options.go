@@ -123,3 +123,41 @@ type SerpOptions struct {
 	// the server rejects a page above 100 with a 400 (not billed).
 	Page *int
 }
+
+// DataOptions are the options for Client.Data.
+//
+// /data returns structured JSON for a page on a supported site. The
+// scraping options in CommonOptions (JS, proxy, headers, …) do not
+// apply, so this struct does not embed it.
+type DataOptions struct {
+	// URL is the page's normal URL on a supported site (e.g. a YouTube
+	// video, a TikTok profile, a Reddit thread). Required; a blank
+	// (whitespace-only) URL is rejected client-side. Sent as given.
+	//
+	// The client does not check the site or page type: supported sites
+	// are added on the server. An unsupported URL or page type returns a
+	// 400 that is not charged (*BadRequestError). Its message lists what
+	// is supported.
+	URL string
+	// Country is the two-letter country code of the proxy used to fetch
+	// the page, "us" by default. The server rejects unknown codes with a
+	// 400.
+	Country string
+	// Transcript: YouTube videos only. Also fetch the video's transcript
+	// into data.transcript. It's null when no matching captions are
+	// available. If the transcript fetch itself fails, the whole request
+	// fails with a 500 and is not charged.
+	Transcript *bool
+	// TranscriptLanguage is the caption language to pick, e.g. "en" or
+	// "de". Without it, English is preferred, then the first available
+	// track. If the video has no captions in that language,
+	// data.transcript is null.
+	TranscriptLanguage string
+	// Params are extra query parameters sent as-is, for provider-specific
+	// options this version of the client doesn't know about yet. Keys
+	// are sent in sorted order after the typed fields. Keys naming
+	// api_key or url are rejected, and so are country, transcript and
+	// transcript_language (use the named fields), whether or not those
+	// fields are set.
+	Params map[string]string
+}

@@ -2,6 +2,7 @@ package webscrapingai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -791,4 +792,275 @@ func TestSanitizeCause_RedactsResidualKey(t *testing.T) {
 	if got := c.sanitizeCause(plain); got != plain {
 		t.Fatalf("clean errors should pass through unchanged, got %v", got)
 	}
+}
+
+// --- Data -------------------------------------------------------------
+
+const dataBody = `{
+  "request_parameters": {"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","provider":"youtube","type":"video"},
+  "parse_status": "ok",
+  "data": {"video_id":"dQw4w9WgXcQ","title":"Never Gonna Give You Up","view_count":1600000000,"transcript":null}
+}`
+
+func TestClient_Data(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(dataBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Data(context.Background(), &DataOptions{
+		URL:                "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1s",
+		Country:            "de",
+		Transcript:         boolPtr(true),
+		TranscriptLanguage: "en",
+		Params:             map[string]string{"zeta": "a b", "alpha": "x&y=z", "k&v=1": "ok"},
+	})
+	if err != nil {
+		t.Fatalf("Data: %v", err)
+	}
+	if cap.Method != http.MethodGet || cap.Path != "/data" {
+		t.Fatalf("request = %s %s", cap.Method, cap.Path)
+	}
+	want := "api_key=test-key&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ%26t%3D1s" +
+		"&country=de&transcript=true&transcript_language=en" +
+		"&alpha=x%26y%3Dz&k%26v%3D1=ok&zeta=a%20b"
+	if cap.RawQuery != want {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+	// The server sees exactly one api_key and one url.
+	parsed, _ := url.ParseQuery(cap.RawQuery)
+	if len(parsed["api_key"]) != 1 || len(parsed["url"]) != 1 || parsed["k&v=1"][0] != "ok" {
+		t.Fatalf("parsed query = %v", parsed)
+	}
+
+	rp := out.RequestParameters
+	if rp.Provider != "youtube" || rp.Type != "video" || rp.URL != "https://www.youtube.com/watch?v=dQw4w9WgXcQ" {
+		t.Fatalf("RequestParameters = %+v", rp)
+	}
+	if out.ParseStatus != "ok" {
+		t.Fatalf("ParseStatus = %q", out.ParseStatus)
+	}
+	var data map[string]any
+	if err := json.Unmarshal(out.Data, &data); err != nil {
+		t.Fatalf("Data is not a JSON object: %v", err)
+	}
+	if data["title"] != "Never Gonna Give You Up" || data["view_count"].(float64) != 1600000000 {
+		t.Fatalf("data = %v", data)
+	}
+	if v, ok := data["transcript"]; !ok || v != nil {
+		t.Fatalf("null fields inside data should survive: %v", data)
+	}
+}
+
+func TestClient_Data_TranscriptFalse(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(dataBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	if _, err := c.Data(context.Background(), &DataOptions{URL: "https://x.com/a/status/1", Transcript: boolPtr(false)}); err != nil {
+		t.Fatalf("Data: %v", err)
+	}
+	if want := "api_key=test-key&url=https%3A%2F%2Fx.com%2Fa%2Fstatus%2F1&transcript=false"; cap.RawQuery != want {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+}
+
+func TestClient_Data_UnknownSiteSentUnmodified(t *testing.T) {
+	// No client-side site allowlist or URL normalisation: any URL goes to
+	// the server byte for byte, and whatever provider/type/status comes
+	// back round-trips.
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"request_parameters":{"url":"https://example.com/anything","provider":"brand_new_site","type":"hologram"},"parse_status":"partially_parsed","data":{"nested":{"a":[1,2]}}}`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	const target = "  https://Example.COM/A%2Fb/ünï?x=1&y=a b#Frag  "
+	out, err := c.Data(context.Background(), &DataOptions{URL: target})
+	if err != nil {
+		t.Fatalf("Data: %v", err)
+	}
+	const wantQuery = "api_key=test-key&url=%20%20https%3A%2F%2FExample.COM%2FA%252Fb%2F%C3%BCn%C3%AF%3Fx%3D1%26y%3Da%20b%23Frag%20%20"
+	if cap.RawQuery != wantQuery {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, wantQuery)
+	}
+	parsed, _ := url.ParseQuery(cap.RawQuery)
+	if got := parsed["url"]; len(got) != 1 || got[0] != target {
+		t.Fatalf("server received url %q, want %q", got, target)
+	}
+	if out.RequestParameters.Provider != "brand_new_site" || out.RequestParameters.Type != "hologram" ||
+		out.ParseStatus != "partially_parsed" || string(out.Data) != `{"nested":{"a":[1,2]}}` {
+		t.Fatalf("unexpected result: %+v (data %s)", out, out.Data)
+	}
+}
+
+func TestClient_Data_NullData(t *testing.T) {
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"request_parameters":{"url":"https://www.tiktok.com/@x","provider":"tiktok","type":"profile"},"parse_status":"parse_failed","data":null}`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Data(context.Background(), &DataOptions{URL: "https://www.tiktok.com/@x"})
+	if err != nil {
+		t.Fatalf("Data: %v", err)
+	}
+	if out.ParseStatus != "parse_failed" || out.Data != nil || out.RequestParameters.Provider != "tiktok" {
+		t.Fatalf("unexpected result: %+v (data %q)", out, out.Data)
+	}
+}
+
+func TestClient_Data_RejectsInvalidArgsBeforeRequest(t *testing.T) {
+	hits := 0
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) { hits++ })
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	u := "https://www.youtube.com/watch?v=1"
+	cases := map[string]*DataOptions{
+		"nil opts":        nil,
+		"empty url":       {URL: ""},
+		"whitespace url":  {URL: " \t\n "},
+		"extra api_key":   {URL: u, Params: map[string]string{"api_key": "other"}},
+		"extra API_KEY":   {URL: u, Params: map[string]string{"API_KEY": "other"}},
+		"extra api_key[]": {URL: u, Params: map[string]string{"api_key[]": "other"}},
+		"extra url":       {URL: u, Params: map[string]string{"url": "https://evil.test"}},
+		"extra url[0]":    {URL: u, Params: map[string]string{"url[0]": "https://evil.test"}},
+		"extra blank key": {URL: u, Params: map[string]string{"": "v"}},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := c.Data(context.Background(), opts); err == nil {
+				t.Fatalf("expected an error for %s", name)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Fatalf("invalid args reached the server %d times", hits)
+	}
+}
+
+func TestClient_Data_RejectsTypedParamNamesInExtras(t *testing.T) {
+	hits := 0
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) { hits++ })
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	cases := map[string]struct {
+		opts  *DataOptions
+		field string
+	}{
+		"country unset":             {&DataOptions{URL: "u", Params: map[string]string{"country": "gb"}}, "Country"},
+		"country set":               {&DataOptions{URL: "u", Country: "us", Params: map[string]string{"country": "de"}}, "Country"},
+		"transcript unset":          {&DataOptions{URL: "u", Params: map[string]string{"transcript": "true"}}, "Transcript"},
+		"transcript set":            {&DataOptions{URL: "u", Transcript: boolPtr(true), Params: map[string]string{"transcript": "false"}}, "Transcript"},
+		"transcript_language unset": {&DataOptions{URL: "u", Params: map[string]string{"transcript_language": "de"}}, "TranscriptLanguage"},
+		"Country upper-case":        {&DataOptions{URL: "u", Params: map[string]string{"Country": "de"}}, "Country"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := c.Data(context.Background(), tc.opts)
+			if err == nil {
+				t.Fatalf("expected an error for %s", name)
+			}
+			if !strings.Contains(err.Error(), "DataOptions."+tc.field) {
+				t.Fatalf("error should name the option to use: %v", err)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Fatalf("invalid args reached the server %d times", hits)
+	}
+}
+
+func TestDataResult_UnmarshalJSON_NullDataIsNil(t *testing.T) {
+	var r DataResult
+	if err := json.Unmarshal([]byte(`{"request_parameters":{"url":"u","provider":"p","type":"t"},"parse_status":"not_found","data":null}`), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Data != nil || r.ParseStatus != "not_found" || r.RequestParameters.Provider != "p" {
+		t.Fatalf("unexpected result: %+v (data %q)", r, r.Data)
+	}
+	if err := json.Unmarshal([]byte(`{"parse_status":"ok"}`), &r); err != nil || r.Data != nil {
+		t.Fatalf("absent data should be nil: %q, %v", r.Data, err)
+	}
+	if err := json.Unmarshal([]byte(`{"parse_status":"ok","data":{"a":1}}`), &r); err != nil || string(r.Data) != `{"a":1}` {
+		t.Fatalf("object data should be kept verbatim: %q, %v", r.Data, err)
+	}
+	if err := json.Unmarshal([]byte(`{"parse_status":`), &r); err == nil {
+		t.Fatal("expected a syntax error")
+	}
+}
+
+// leakyTransport fails every request the way net/http does: with a
+// *url.Error whose message carries the full request URL, api_key included.
+type leakyTransport struct{}
+
+func (leakyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return nil, &url.Error{Op: "Get", URL: req.URL.String(), Err: fmt.Errorf("dial tcp: lookup failed for %s", req.URL.String())}
+}
+
+func TestClient_Data_FakeTransportErrorDoesNotLeakKey(t *testing.T) {
+	c, err := NewClient(&Config{APIKey: leakKey, BaseURL: "https://api.test", HTTPClient: &http.Client{Transport: leakyTransport{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Data(context.Background(), &DataOptions{URL: "https://www.youtube.com/watch?v=1"})
+	var ce *ConnectionError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ConnectionError, got %v", err)
+	}
+	assertNoKeyInChain(t, err)
+}
+
+func TestClient_Data_BadRequestMapping(t *testing.T) {
+	const msg = "Unsupported URL for /data. Supported sites: youtube, tiktok, twitter, linkedin, instagram, reddit. For other sites, use /ai/fields."
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(`{"message":"` + msg + `"}`))
+	})
+	defer srv.Close()
+	c, err := NewClient(&Config{APIKey: leakKey, BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = c.Data(context.Background(), &DataOptions{URL: "https://example.com/"})
+	var br *BadRequestError
+	if !errors.As(err, &br) {
+		t.Fatalf("expected *BadRequestError, got %v", err)
+	}
+	if br.HTTPStatus != 400 || br.Message != msg {
+		t.Fatalf("APIError = %+v", br.APIError)
+	}
+	assertNoKeyInChain(t, err)
+}
+
+func TestClient_Data_TransportErrorsDoNotLeakKey(t *testing.T) {
+	c, err := NewClient(&Config{APIKey: leakKey, BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Data(context.Background(), &DataOptions{URL: "https://www.youtube.com/watch?v=1"})
+	var ce *ConnectionError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ConnectionError, got %v", err)
+	}
+	assertNoKeyInChain(t, err)
+
+	srv := newSlowServer(t)
+	c, err = NewClient(&Config{APIKey: leakKey, BaseURL: srv.URL, Timeout: 30 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Data(context.Background(), &DataOptions{URL: "https://www.youtube.com/watch?v=1"})
+	var te *TimeoutError
+	if !errors.As(err, &te) {
+		t.Fatalf("expected *TimeoutError, got %v", err)
+	}
+	assertNoKeyInChain(t, err)
 }

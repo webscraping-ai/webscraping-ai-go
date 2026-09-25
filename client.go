@@ -26,9 +26,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -297,6 +299,85 @@ func (c *Client) Serp(ctx context.Context, opts *SerpOptions) (*SerpResult, erro
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Data calls GET /data and returns structured JSON for a page on a
+// supported site (e.g. a YouTube video, TikTok profile, X post, LinkedIn
+// company, Instagram reel or Reddit thread). 15 credits per
+// request, including parse_failed and not_found results; failed fetches
+// are not charged.
+//
+// opts.URL must not be blank; nothing else about it is checked
+// client-side. More sites are added on the server. An unsupported URL
+// or page type returns a 400 that is not charged (*BadRequestError). Its
+// message lists what is supported.
+//
+// Like /serp, /data ignores the scraping options, so DataOptions does
+// not embed CommonOptions. Use opts.Params for provider-specific
+// parameters this client doesn't have a field for.
+func (c *Client) Data(ctx context.Context, opts *DataOptions) (*DataResult, error) {
+	if opts == nil || strings.TrimSpace(opts.URL) == "" {
+		return nil, errors.New("webscrapingai: Data requires a non-blank opts.URL")
+	}
+	params := query.Params{}
+	params.Set("url", opts.URL)
+	setIfNotEmpty(&params, "country", opts.Country)
+	setBoolPtr(&params, "transcript", opts.Transcript)
+	setIfNotEmpty(&params, "transcript_language", opts.TranscriptLanguage)
+	if err := addExtraParams(&params, opts.Params); err != nil {
+		return nil, err
+	}
+	ctx, cancel := c.contextWithTimeout(ctx)
+	defer cancel()
+	body, _, err := c.do(ctx, "/data", params)
+	if err != nil {
+		return nil, err
+	}
+	var out DataResult
+	if err := decodeJSON(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// dataTypedParams maps each DataOptions typed query param to its field.
+var dataTypedParams = map[string]string{
+	"country":             "Country",
+	"transcript":          "Transcript",
+	"transcript_language": "TranscriptLanguage",
+}
+
+// addExtraParams appends extra (sorted by key) to p. It refuses keys that
+// would override api_key or url, and keys naming a typed option.
+// Keys are compared on their name before any "[" and case-insensitively,
+// so "API_KEY" or "url[]" cannot smuggle a second value past the check.
+func addExtraParams(p *query.Params, extra map[string]string) error {
+	if len(extra) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		base := k
+		if i := strings.IndexByte(base, '['); i >= 0 {
+			base = base[:i]
+		}
+		base = strings.TrimSpace(base)
+		if base == "" {
+			return errors.New("webscrapingai: extra param keys must not be blank")
+		}
+		if strings.EqualFold(base, "api_key") || strings.EqualFold(base, "url") {
+			return fmt.Errorf("webscrapingai: extra param %q is not allowed (use Config.APIKey / opts.URL)", k)
+		}
+		if field, ok := dataTypedParams[strings.ToLower(base)]; ok {
+			return fmt.Errorf("webscrapingai: extra param %q is not allowed (use DataOptions.%s)", k, field)
+		}
+		p.Set(k, extra[k])
+	}
+	return nil
 }
 
 // Account calls GET /account and returns the account quota info.

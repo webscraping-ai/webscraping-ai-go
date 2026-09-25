@@ -111,6 +111,15 @@ func main() {
         fmt.Println(r.Position, r.Title, r.Link)
     }
 
+    // Structured data for a page on a supported site (flat 15 credits)
+    data, err := client.Data(ctx, &webscrapingai.DataOptions{
+        URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(data.RequestParameters.Provider, data.ParseStatus, string(data.Data))
+
     // Account quota
     info, err := client.Account(ctx)
     if err != nil {
@@ -173,6 +182,72 @@ if serp.Pagination.Next != nil {
 Optional response fields (`Snippet`, `Date`, `ShowingResultsFor`,
 `TotalResults`, `Pagination.Next`) are pointers and are `nil` when the
 API omits them; `RelatedSearches` is `nil` when the page shows none.
+
+## Structured data (/data)
+
+`Data` calls `GET /data` and returns structured JSON for a public page on a
+supported site. Pass the page's normal URL; the site (`Provider`) and page
+kind (`Type`) are detected on the server. Supported sites today include
+YouTube, TikTok, X/Twitter, LinkedIn, Instagram and Reddit (for example a
+YouTube video, a TikTok profile or a Reddit thread). More sites are added on
+the server without a client release, so the client never checks the URL
+beyond rejecting a blank one. An unsupported URL or page type returns a
+400 that is not charged (`*BadRequestError`). Its message lists what is
+supported. For other sites, use `Fields`.
+
+15 credits per request, including results with `ParseStatus`
+`parse_failed` or `not_found`; failed fetches are not charged. None of the
+page-scraping options (JS, proxy, headers, …) apply.
+
+```go
+transcript := true
+res, err := client.Data(ctx, &webscrapingai.DataOptions{
+    URL:                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", // required
+    Country:            "us",         // optional two-letter proxy country, "us" by default
+    Transcript:         &transcript, // optional, YouTube videos only
+    TranscriptLanguage: "en",         // optional caption language, with Transcript
+    // Params: map[string]string{"some_new_param": "value"}, // extra params, sent as-is
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println(res.RequestParameters.Provider, res.RequestParameters.Type, res.ParseStatus) // youtube video ok
+
+// Data is raw JSON (json.RawMessage) whose shape depends on Provider and
+// Type; it is nil when the API returned null. Decode it into a map or your
+// own struct.
+var video struct {
+    Title     string `json:"title"`
+    ViewCount int64  `json:"view_count"`
+}
+if res.Data != nil {
+    if err := json.Unmarshal(res.Data, &video); err != nil {
+        log.Fatal(err)
+    }
+}
+fmt.Println(video.Title)
+```
+
+- `Country`: two-letter country code of the proxy used to fetch the page,
+  `us` by default. The server rejects unknown codes with a 400.
+- `Transcript`: YouTube videos only. Also fetch the video's transcript into
+  `data.transcript`. It's null when no matching captions are available. If
+  the transcript fetch itself fails, the whole request fails with a 500 and
+  is not charged.
+- `TranscriptLanguage`: caption language to pick, e.g. `en` or `de`.
+  Without it, English is preferred, then the first available track. If the
+  video has no captions in that language, `data.transcript` is null.
+
+`Provider`, `Type` and `ParseStatus` are plain strings: new values appear
+as the server adds sites. `ParseStatus` is `ok`, `parse_failed` (fetched
+but not parsed; `Data` may be nil or partial) or `not_found`.
+
+`Params` sends extra query parameters as-is, so provider-specific options
+added on the server later work without upgrading the client. It rejects
+`api_key` and `url` keys, and the typed option names `country`,
+`transcript` and `transcript_language` (use `Country`, `Transcript` and
+`TranscriptLanguage`), whether or not those fields are set.
 
 ## Configuration
 
@@ -255,7 +330,7 @@ go test ./...           # all tests
 go vet ./...
 gofmt -l .              # any output → unformatted files
 
-# Live smoke (hits production, costs ~32 credits):
+# Live smoke (hits production, costs ~46 credits):
 WEBSCRAPING_AI_API_KEY=... go run ./cmd/smoke
 ```
 

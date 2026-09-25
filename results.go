@@ -1,5 +1,7 @@
 package webscrapingai
 
+import "encoding/json"
+
 // AccountInfo is the parsed response from Client.Account.
 type AccountInfo struct {
 	// Email is the account email.
@@ -104,4 +106,48 @@ type SerpPagination struct {
 	Current int `json:"current"`
 	// Next is the next page number; nil when no further page is offered.
 	Next *int `json:"next,omitempty"`
+}
+
+// DataResult is the parsed response from Client.Data.
+//
+// Provider, Type and ParseStatus are plain strings, not enums: new sites,
+// page types and statuses are added on the server over time.
+type DataResult struct {
+	// RequestParameters echoes the URL and how it was classified.
+	RequestParameters DataRequestParameters `json:"request_parameters"`
+	// ParseStatus is "ok" when the page was parsed, "parse_failed" when
+	// it was fetched but couldn't be parsed (Data may be nil or partial),
+	// or "not_found" when the page doesn't exist. All are successful,
+	// charged requests.
+	ParseStatus string `json:"parse_status"`
+	// Data is the page's fields as raw JSON; its shape depends on
+	// Provider and Type. Decode it with json.Unmarshal into a map or your
+	// own struct. Nil when the API returned null.
+	Data json.RawMessage `json:"data"`
+}
+
+// UnmarshalJSON decodes a DataResult, turning a JSON null "data" into a
+// nil Data so callers can test out.Data == nil however they decoded it.
+func (r *DataResult) UnmarshalJSON(b []byte) error {
+	type plain DataResult
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	if string(p.Data) == "null" {
+		p.Data = nil
+	}
+	*r = DataResult(p)
+	return nil
+}
+
+// DataRequestParameters mirrors DataResult.request_parameters.
+type DataRequestParameters struct {
+	URL string `json:"url"`
+	// Provider is the detected site, e.g. "youtube", "tiktok", "twitter",
+	// "linkedin", "instagram" or "reddit". An open set.
+	Provider string `json:"provider"`
+	// Type is the detected page kind, e.g. "video", "channel", "profile",
+	// "post", "company" or "job". An open set.
+	Type string `json:"type"`
 }

@@ -1,7 +1,8 @@
 // Hand-run smoke test against the live API. Not part of `go test ./...`
-// — costs ~31 credits per full sweep: page tools run with js=false and
+// — costs ~46 credits per full sweep: page tools run with js=false and
 // the datacenter proxy (html/text/selected/selected_multiple 4 × 1,
-// question/fields 2 × 6) plus 15 for the SERP search.
+// question/fields 2 × 6), plus 15 for the SERP search and 15 for one
+// /data call. The /data unsupported-URL check is a free 400.
 //
 // Each case asserts on the result shape, not just the absence of an
 // error, and a panic in one case is reported as a FAIL without stopping
@@ -14,6 +15,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -128,6 +130,47 @@ func main() {
 			top := out.OrganicResults[0].Link
 			return fmt.Sprintf("state=%q results=%d top=%s",
 				out.SearchInformation.OrganicResultsState, len(out.OrganicResults), top), nil
+		}},
+		{"data", func() (string, error) {
+			out, err := client.Data(ctx, &webscrapingai.DataOptions{URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"})
+			if err != nil {
+				return "", err
+			}
+			if out.ParseStatus != "ok" {
+				return "", fmt.Errorf("parse_status = %q, want ok", out.ParseStatus)
+			}
+			if out.RequestParameters.Provider != "youtube" {
+				return "", fmt.Errorf("request_parameters.provider = %q, want youtube", out.RequestParameters.Provider)
+			}
+			if out.Data == nil {
+				return "", errors.New("data is null")
+			}
+			var data map[string]any
+			if err := json.Unmarshal(out.Data, &data); err != nil {
+				return "", fmt.Errorf("data is not an object: %w", err)
+			}
+			title, _ := data["title"].(string)
+			if strings.TrimSpace(title) == "" {
+				return "", fmt.Errorf("data.title is empty: %v", data["title"])
+			}
+			return fmt.Sprintf("provider=%s type=%s parse_status=%s title=%q",
+				out.RequestParameters.Provider, out.RequestParameters.Type, out.ParseStatus, title), nil
+		}},
+		{"data_unsupported", func() (string, error) {
+			// No client-side site filter: the server must answer with a
+			// free 400 for a site /data doesn't support.
+			_, err := client.Data(ctx, &webscrapingai.DataOptions{URL: "https://example.com/"})
+			var br *webscrapingai.BadRequestError
+			if !errors.As(err, &br) {
+				if err == nil {
+					return "", errors.New("expected a 400 from the server, got success")
+				}
+				return "", fmt.Errorf("expected *BadRequestError, got %w", err)
+			}
+			if !strings.Contains(br.Message, "Unsupported URL") {
+				return "", fmt.Errorf("400 message lacks %q: %s", "Unsupported URL", br.Message)
+			}
+			return fmt.Sprintf("HTTP %d: %s", br.HTTPStatus, br.Message), nil
 		}},
 	}
 
