@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -618,5 +619,176 @@ func TestClient_ErrorsImplementMarker(t *testing.T) {
 	var marker Error
 	if !errors.As(err, &marker) {
 		t.Fatalf("expected Error marker, got %v", err)
+	}
+}
+
+// --- Serp argument validation ----------------------------------------
+
+func TestClient_Serp_RejectsInvalidArgsBeforeRequest(t *testing.T) {
+	hits := 0
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) { hits++ })
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	cases := map[string]*SerpOptions{
+		"empty q":      {Q: ""},
+		"whitespace q": {Q: " \t\n "},
+		"page 0":       {Q: "coffee", Page: intPtr(0)},
+		"page -1":      {Q: "coffee", Page: intPtr(-1)},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := c.Serp(context.Background(), opts); err == nil {
+				t.Fatalf("expected an error for %s", name)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Fatalf("invalid args reached the server %d times", hits)
+	}
+}
+
+func TestClient_Serp_SendsQUntrimmedAndPageOne(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(serpBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	if _, err := c.Serp(context.Background(), &SerpOptions{Q: " coffee ", Page: intPtr(1)}); err != nil {
+		t.Fatalf("Serp: %v", err)
+	}
+	if want := "api_key=test-key&q=%20coffee%20&page=1"; cap.RawQuery != want {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+}
+
+// --- Base URL validation ----------------------------------------------
+
+func TestNewClient_RejectsInvalidBaseURL(t *testing.T) {
+	for _, base := range []string{"http://bad host", "ftp://example.com", "example.com", "http://", "://x"} {
+		if _, err := NewClient(&Config{APIKey: "secret-key-123456", BaseURL: base}); err == nil {
+			t.Errorf("BaseURL %q should be rejected", base)
+		} else if strings.Contains(err.Error(), "secret-key-123456") {
+			t.Errorf("error leaks key: %v", err)
+		}
+	}
+}
+
+// --- API key never leaks into transport errors -------------------------
+
+const leakKey = "secret-key-123456"
+
+func assertNoKeyInChain(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		msg := e.Error()
+		if strings.Contains(msg, leakKey) || (strings.Contains(msg, "api_key=") && !strings.Contains(msg, "api_key=REDACTED")) {
+			t.Fatalf("error chain leaks the API key: %T: %s", e, msg)
+		}
+		var urlErr *url.Error
+		if errors.As(e, &urlErr) {
+			t.Fatalf("error chain still contains a *url.Error: %v", urlErr)
+		}
+	}
+}
+
+func newSlowServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); srv.Close() })
+	return srv
+}
+
+func TestClient_TimeoutErrorDoesNotLeakKey(t *testing.T) {
+	srv := newSlowServer(t)
+	c, err := NewClient(&Config{APIKey: leakKey, BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err = c.Serp(ctx, &SerpOptions{Q: "x"})
+	var te *TimeoutError
+	if !errors.As(err, &te) {
+		t.Fatalf("expected *TimeoutError, got %v", err)
+	}
+	assertNoKeyInChain(t, err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("errors.Is(err, context.DeadlineExceeded) = false for %v", err)
+	}
+}
+
+func TestClient_DefaultTimeoutDoesNotLeakKey(t *testing.T) {
+	srv := newSlowServer(t)
+	c, err := NewClient(&Config{APIKey: leakKey, BaseURL: srv.URL, Timeout: 30 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.HTML(context.Background(), &HTMLOptions{URL: "x"})
+	var te *TimeoutError
+	if !errors.As(err, &te) {
+		t.Fatalf("expected *TimeoutError, got %v", err)
+	}
+	assertNoKeyInChain(t, err)
+}
+
+func TestClient_CancelledContextDoesNotLeakKey(t *testing.T) {
+	srv := newSlowServer(t)
+	c, err := NewClient(&Config{APIKey: leakKey, BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
+	_, err = c.Serp(ctx, &SerpOptions{Q: "x"})
+	var te *TimeoutError
+	if !errors.As(err, &te) {
+		t.Fatalf("expected *TimeoutError, got %v", err)
+	}
+	assertNoKeyInChain(t, err)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("errors.Is(err, context.Canceled) = false for %v", err)
+	}
+
+	// Already-cancelled context: fails before a connection is made.
+	done, cancelNow := context.WithCancel(context.Background())
+	cancelNow()
+	_, err = c.Serp(done, &SerpOptions{Q: "x"})
+	assertNoKeyInChain(t, err)
+}
+
+func TestClient_ConnectionErrorDoesNotLeakKey(t *testing.T) {
+	c, err := NewClient(&Config{APIKey: leakKey, BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Serp(context.Background(), &SerpOptions{Q: "x"})
+	var ce *ConnectionError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected *ConnectionError, got %v", err)
+	}
+	assertNoKeyInChain(t, err)
+}
+
+func TestSanitizeCause_RedactsResidualKey(t *testing.T) {
+	c := &Client{apiKey: leakKey}
+	err := c.sanitizeCause(fmt.Errorf("wrapped: %w", errors.New("GET /x?api_key="+leakKey+"&q=1 failed")))
+	assertNoKeyInChain(t, err)
+	if !strings.Contains(err.Error(), "api_key=REDACTED") {
+		t.Fatalf("unexpected message: %v", err)
+	}
+	plain := errors.New("connection reset")
+	if got := c.sanitizeCause(plain); got != plain {
+		t.Fatalf("clean errors should pass through unchanged, got %v", got)
 	}
 }

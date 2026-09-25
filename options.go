@@ -106,7 +106,8 @@ type FieldsOptions struct {
 // /serp is query-shaped, not URL-shaped: the scraping options in
 // CommonOptions do not apply, so this struct does not embed it.
 type SerpOptions struct {
-	// Q is the search query. Required.
+	// Q is the search query. Required; blank (whitespace-only) queries
+	// are rejected client-side. Sent as given, without trimming.
 	Q string
 	// Engine is the search engine to query. Only "google" (the API
 	// default) is supported today. Empty string defers to the default.
@@ -118,6 +119,7 @@ type SerpOptions struct {
 	// parameter). API default: "en".
 	HL string
 	// Page is the results page number, starting at 1 (10 results per
-	// page). API default: 1.
+	// page). API default: 1. Values below 1 are rejected client-side;
+	// the server caps the page at 100.
 	Page *int
 }

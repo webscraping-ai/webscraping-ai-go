@@ -9,6 +9,14 @@ documented in this file.
 
 - `Client.Serp` for the new `GET /serp` endpoint: parsed Google search results for a query. Options via `SerpOptions` (`Q` required; `Engine`, `GL`, `HL`, `Page` optional). Returns a typed `*SerpResult` (`SearchParameters`, `SearchInformation`, `OrganicResults`, `RelatedSearches`, `Pagination`); optional response fields are pointers. Flat 15 credits per search; failed searches are not charged.
 - `cmd/smoke` now exercises `Serp`.
+- `Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1 before sending a request; the server would otherwise coerce an invalid page to 1 and still charge. `Q` is sent untrimmed. The server caps `Page` at 100.
+- `cmd/smoke` asserts on results (non-empty page output, at least one non-empty `SelectedMultiple` match, `Fields` `result` present, `Serp` organic results and echoed query), runs page tools with `js=false` and the datacenter proxy (~31 credits per sweep), turns panics into FAIL lines, and redacts the API key from output.
+
+### Fixed
+
+- Transport errors no longer leak the API key. A timeout or cancelled context used to keep net/http's `*url.Error` as the `TimeoutError` cause, and that error includes the full request URL with `api_key` (for example `Get "https://…/serp?api_key=…&q=…": context deadline exceeded`). All transport, request-building and body-read errors now drop the URL, and a final check redacts any leftover `api_key=` or key value. `errors.Is(err, context.DeadlineExceeded)` / `context.Canceled` still works.
+- `NewClient` rejects a `BaseURL` that is not an absolute http(s) URL. Before, it failed later with an error that carried the key-bearing URL.
+- README quick start handles errors from `Serp`, `Fields` and `Account` instead of dereferencing a possibly-nil result.
 
 ## 4.0.2 — 2026-07-17
 

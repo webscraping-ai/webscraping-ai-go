@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -92,6 +93,12 @@ func NewClient(cfg *Config) (*Client, error) {
 		baseURL = DefaultBaseURL
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
+	// Validate up front, before any api_key is attached to a URL, so a
+	// malformed BaseURL fails here instead of in an error that embeds
+	// the full request URL.
+	if u, err := url.Parse(baseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, errors.New("webscrapingai: BaseURL must be an absolute http(s) URL")
+	}
 
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
@@ -257,12 +264,20 @@ func (c *Client) Fields(ctx context.Context, opts *FieldsOptions) (*FieldsResult
 // Serp calls GET /serp and returns the parsed search engine results for
 // opts.Q. Flat 15 credits per search; failed searches are not charged.
 //
+// opts.Q must not be blank and opts.Page, when set, must be >= 1; both
+// are checked before any request (the server would otherwise coerce an
+// invalid page to 1 and still charge). The server caps Page at 100. Q
+// is sent exactly as given.
+//
 // Unlike the page endpoints /serp is query-shaped: none of the scraping
 // options (JS, proxy, country, …) apply, so SerpOptions does not embed
 // CommonOptions.
 func (c *Client) Serp(ctx context.Context, opts *SerpOptions) (*SerpResult, error) {
-	if opts == nil || opts.Q == "" {
-		return nil, errors.New("webscrapingai: Serp requires opts.Q")
+	if opts == nil || strings.TrimSpace(opts.Q) == "" {
+		return nil, errors.New("webscrapingai: Serp requires a non-blank opts.Q")
+	}
+	if opts.Page != nil && *opts.Page < 1 {
+		return nil, errors.New("webscrapingai: Serp opts.Page must be >= 1")
 	}
 	ctx, cancel := c.contextWithTimeout(ctx)
 	defer cancel()

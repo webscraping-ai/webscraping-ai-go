@@ -88,25 +88,34 @@ func main() {
     })
     fmt.Println(answer)
 
-    fields, _ := client.Fields(ctx, &webscrapingai.FieldsOptions{
+    fields, err := client.Fields(ctx, &webscrapingai.FieldsOptions{
         URL: "https://example.com",
         Fields: map[string]string{
             "title": "Main product title",
             "price": "Current product price",
         },
     })
+    if err != nil {
+        log.Fatal(err)
+    }
     fmt.Println(fields.Result)
 
     // Google search results (flat 15 credits per search)
-    serp, _ := client.Serp(ctx, &webscrapingai.SerpOptions{
+    serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
         Q: "coffee machines",
     })
+    if err != nil {
+        log.Fatal(err)
+    }
     for _, r := range serp.OrganicResults {
         fmt.Println(r.Position, r.Title, r.Link)
     }
 
     // Account quota
-    info, _ := client.Account(ctx)
+    info, err := client.Account(ctx)
+    if err != nil {
+        log.Fatal(err)
+    }
     fmt.Printf("%s — %d remaining\n", info.Email, info.RemainingAPICalls)
 }
 ```
@@ -126,6 +135,11 @@ client, err := webscrapingai.NewClient(nil)
 of a URL. None of the page-scraping options (JS, proxy, country, …)
 apply. Flat 15 credits per search; failed searches are not charged.
 
+`Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1
+before sending anything — the server would otherwise silently treat an
+invalid page as page 1 and still charge for it. The server caps `Page`
+at 100.
+
 ```go
 page := 2
 serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
@@ -133,7 +147,7 @@ serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
     Engine: "google",          // optional, default "google" (only engine today)
     GL:     "de",              // optional two-letter country, default "us"
     HL:     "de",              // optional two-letter language, default "en"
-    Page:   &page,             // optional, 1-based, 10 results per page
+    Page:   &page,             // optional, 1-based, 10 results per page (server caps at 100)
 })
 if err != nil {
     log.Fatal(err)
