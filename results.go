@@ -31,3 +31,77 @@ type FieldsResult struct {
 // the spec implies. The client passes the shape through verbatim — see
 // README.
 type SelectedMultipleResult [][]string
+
+// SerpResult is the parsed response from Client.Serp. Field names follow
+// the common SERP API naming (SerpApi family).
+type SerpResult struct {
+	// SearchParameters are the normalized parameters the search ran with.
+	SearchParameters SerpSearchParameters `json:"search_parameters"`
+	// SearchInformation is what the engine reported about the search.
+	SearchInformation SerpSearchInformation `json:"search_information"`
+	// OrganicResults are the organic (non-ad) results, in rank order.
+	OrganicResults []SerpOrganicResult `json:"organic_results"`
+	// RelatedSearches are the engine's "Related searches" suggestions.
+	// Nil when the page shows none.
+	RelatedSearches []SerpRelatedSearch `json:"related_searches,omitempty"`
+	// Pagination describes the current and next results page.
+	Pagination SerpPagination `json:"pagination"`
+}
+
+// SerpSearchParameters mirrors SerpResult.search_parameters.
+type SerpSearchParameters struct {
+	Engine string `json:"engine"`
+	Q      string `json:"q"`
+	GL     string `json:"gl"`
+	HL     string `json:"hl"`
+	Page   int    `json:"page"`
+}
+
+// SerpSearchInformation mirrors SerpResult.search_information.
+type SerpSearchInformation struct {
+	// QueryDisplayed is the query the results are for. Equals Q unless
+	// the engine applied a spelling fix.
+	QueryDisplayed string `json:"query_displayed"`
+	// OrganicResultsState is one of "Results for exact spelling",
+	// "Empty showing fixed spelling results" (see ShowingResultsFor), or
+	// "Fully empty" (no organic results; still a successful, billed
+	// search).
+	OrganicResultsState string `json:"organic_results_state"`
+	// ShowingResultsFor is the auto-corrected query, set only when the
+	// engine applied a spelling fix.
+	ShowingResultsFor *string `json:"showing_results_for,omitempty"`
+	// TotalResults is the engine's estimated total result count, set
+	// only when the upstream page reports it.
+	TotalResults *int64 `json:"total_results,omitempty"`
+}
+
+// SerpOrganicResult is one entry of SerpResult.OrganicResults.
+type SerpOrganicResult struct {
+	// Position is the 1-based rank within this page; it restarts at 1 on
+	// every page. Compute (page-1)*10 + Position for an absolute rank.
+	Position int    `json:"position"`
+	Title    string `json:"title"`
+	Link     string `json:"link"`
+	// Domain is the hostname of Link without a leading "www.".
+	Domain string `json:"domain"`
+	// DisplayedLink is the breadcrumb-style URL shown under the title
+	// (falls back to Domain when none is shown).
+	DisplayedLink string `json:"displayed_link"`
+	// Snippet is the result description, when one is shown.
+	Snippet *string `json:"snippet,omitempty"`
+	// Date is the date shown next to the snippet, verbatim (absolute or
+	// relative), when present.
+	Date *string `json:"date,omitempty"`
+}
+
+// SerpRelatedSearch is one entry of SerpResult.RelatedSearches.
+type SerpRelatedSearch struct {
+	Query string `json:"query"`
+}
+
+// SerpPagination mirrors SerpResult.pagination.
+type SerpPagination struct {
+	Current int `json:"current"`
+	// Next is the next page number; nil when no further page is offered.
+	Next *int `json:"next,omitempty"`
+}

@@ -1,5 +1,6 @@
 // Hand-run smoke test against the live API. Not part of `go test ./...`
-// — costs ~17 credits per full sweep.
+// — costs ~32 credits per full sweep (~17 for the page endpoints plus
+// 15 for the SERP search).
 //
 // Usage:
 //
@@ -84,6 +85,18 @@ func main() {
 				return "", err
 			}
 			return fmt.Sprintf("%v", out.Result), nil
+		}},
+		{"serp", func() (string, error) {
+			out, err := client.Serp(ctx, &webscrapingai.SerpOptions{Q: "coffee machines"})
+			if err != nil {
+				return "", err
+			}
+			top := ""
+			if len(out.OrganicResults) > 0 {
+				top = out.OrganicResults[0].Link
+			}
+			return fmt.Sprintf("state=%q results=%d top=%s",
+				out.SearchInformation.OrganicResultsState, len(out.OrganicResults), top), nil
 		}},
 	}
 

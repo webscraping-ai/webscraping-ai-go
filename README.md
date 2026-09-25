@@ -97,6 +97,14 @@ func main() {
     })
     fmt.Println(fields.Result)
 
+    // Google search results (flat 15 credits per search)
+    serp, _ := client.Serp(ctx, &webscrapingai.SerpOptions{
+        Q: "coffee machines",
+    })
+    for _, r := range serp.OrganicResults {
+        fmt.Println(r.Position, r.Title, r.Link)
+    }
+
     // Account quota
     info, _ := client.Account(ctx)
     fmt.Printf("%s — %d remaining\n", info.Email, info.RemainingAPICalls)
@@ -110,6 +118,47 @@ variable as a fallback:
 // WEBSCRAPING_AI_API_KEY="..." in the environment
 client, err := webscrapingai.NewClient(nil)
 ```
+
+## Search engine results (SERP)
+
+`Serp` calls `GET /serp` and returns parsed Google results as a typed
+`*SerpResult`. It is query-shaped — pass the search query in `Q` instead
+of a URL. None of the page-scraping options (JS, proxy, country, …)
+apply. Flat 15 credits per search; failed searches are not charged.
+
+```go
+page := 2
+serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
+    Q:      "coffee machines", // required
+    Engine: "google",          // optional, default "google" (only engine today)
+    GL:     "de",              // optional two-letter country, default "us"
+    HL:     "de",              // optional two-letter language, default "en"
+    Page:   &page,             // optional, 1-based, 10 results per page
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println(serp.SearchInformation.OrganicResultsState) // "Results for exact spelling"
+for _, r := range serp.OrganicResults {
+    // Position restarts at 1 on every page; (page-1)*10 + Position is
+    // the absolute rank.
+    fmt.Println(r.Position, r.Title, r.Link, r.Domain)
+    if r.Snippet != nil {
+        fmt.Println("  ", *r.Snippet)
+    }
+}
+for _, rs := range serp.RelatedSearches {
+    fmt.Println("related:", rs.Query)
+}
+if serp.Pagination.Next != nil {
+    fmt.Println("next page:", *serp.Pagination.Next)
+}
+```
+
+Optional response fields (`Snippet`, `Date`, `ShowingResultsFor`,
+`TotalResults`, `Pagination.Next`) are pointers and are `nil` when the
+API omits them; `RelatedSearches` is `nil` when the page shows none.
 
 ## Configuration
 
@@ -192,7 +241,7 @@ go test ./...           # all tests
 go vet ./...
 gofmt -l .              # any output → unformatted files
 
-# Live smoke (hits production, costs ~17 credits):
+# Live smoke (hits production, costs ~32 credits):
 WEBSCRAPING_AI_API_KEY=... go run ./cmd/smoke
 ```
 

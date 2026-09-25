@@ -100,3 +100,24 @@ type FieldsOptions struct {
 	// Required and must be non-empty.
 	Fields map[string]string
 }
+
+// SerpOptions are the options for Client.Serp.
+//
+// /serp is query-shaped, not URL-shaped: the scraping options in
+// CommonOptions do not apply, so this struct does not embed it.
+type SerpOptions struct {
+	// Q is the search query. Required.
+	Q string
+	// Engine is the search engine to query. Only "google" (the API
+	// default) is supported today. Empty string defers to the default.
+	Engine string
+	// GL is the two-letter country code for geolocation of the search
+	// (Google's gl parameter). API default: "us".
+	GL string
+	// HL is the two-letter language code for the results (Google's hl
+	// parameter). API default: "en".
+	HL string
+	// Page is the results page number, starting at 1 (10 results per
+	// page). API default: 1.
+	Page *int
+}

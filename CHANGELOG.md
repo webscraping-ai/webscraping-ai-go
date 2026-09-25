@@ -3,6 +3,13 @@
 All notable changes to `github.com/webscraping-ai/webscraping-ai-go` are
 documented in this file.
 
+## 4.1.0 — 2026-09-25
+
+### Added
+
+- `Client.Serp` for the new `GET /serp` endpoint: parsed Google search results for a query. Options via `SerpOptions` (`Q` required; `Engine`, `GL`, `HL`, `Page` optional). Returns a typed `*SerpResult` (`SearchParameters`, `SearchInformation`, `OrganicResults`, `RelatedSearches`, `Pagination`); optional response fields are pointers. Flat 15 credits per search; failed searches are not charged.
+- `cmd/smoke` now exercises `Serp`.
+
 ## 4.0.2 — 2026-07-17
 
 ### Changed

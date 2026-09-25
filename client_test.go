@@ -342,6 +342,131 @@ func TestClient_Fields(t *testing.T) {
 	}
 }
 
+// --- Serp -------------------------------------------------------------
+
+const serpBody = `{
+  "search_parameters": {"engine":"google","q":"coffee machines","gl":"de","hl":"de","page":2},
+  "search_information": {"query_displayed":"coffee machines","organic_results_state":"Results for exact spelling","total_results":160000000},
+  "organic_results": [
+    {"position":1,"title":"Best Coffee Machines","link":"https://www.example.com/best","domain":"example.com","displayed_link":"www.example.com › Reviews","snippet":"We tested 20 machines","date":"Apr 13, 2026"},
+    {"position":2,"title":"Other","link":"https://other.test/","domain":"other.test","displayed_link":"other.test"}
+  ],
+  "related_searches": [{"query":"best espresso machine"}],
+  "pagination": {"current":2,"next":3}
+}`
+
+func TestClient_Serp(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(serpBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Serp(context.Background(), &SerpOptions{
+		Q:      "coffee machines",
+		Engine: "google",
+		GL:     "de",
+		HL:     "de",
+		Page:   intPtr(2),
+	})
+	if err != nil {
+		t.Fatalf("Serp: %v", err)
+	}
+	if cap.Method != http.MethodGet || cap.Path != "/serp" {
+		t.Fatalf("request = %s %s", cap.Method, cap.Path)
+	}
+	want := "api_key=test-key&q=coffee%20machines&engine=google&gl=de&hl=de&page=2"
+	if cap.RawQuery != want {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+
+	if out.SearchParameters.Q != "coffee machines" || out.SearchParameters.Page != 2 {
+		t.Fatalf("SearchParameters = %+v", out.SearchParameters)
+	}
+	info := out.SearchInformation
+	if info.OrganicResultsState != "Results for exact spelling" || info.ShowingResultsFor != nil ||
+		info.TotalResults == nil || *info.TotalResults != 160000000 {
+		t.Fatalf("SearchInformation = %+v", info)
+	}
+	if len(out.OrganicResults) != 2 {
+		t.Fatalf("OrganicResults len = %d", len(out.OrganicResults))
+	}
+	first := out.OrganicResults[0]
+	if first.Position != 1 || first.Domain != "example.com" || first.DisplayedLink != "www.example.com › Reviews" ||
+		first.Snippet == nil || *first.Snippet != "We tested 20 machines" || first.Date == nil {
+		t.Fatalf("OrganicResults[0] = %+v", first)
+	}
+	if second := out.OrganicResults[1]; second.Snippet != nil || second.Date != nil {
+		t.Fatalf("absent optional fields should be nil: %+v", second)
+	}
+	if len(out.RelatedSearches) != 1 || out.RelatedSearches[0].Query != "best espresso machine" {
+		t.Fatalf("RelatedSearches = %+v", out.RelatedSearches)
+	}
+	if out.Pagination.Current != 2 || out.Pagination.Next == nil || *out.Pagination.Next != 3 {
+		t.Fatalf("Pagination = %+v", out.Pagination)
+	}
+}
+
+func TestClient_Serp_OnlyQuery(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"search_parameters":{"engine":"google","q":"asdf","gl":"us","hl":"en","page":1},"search_information":{"query_displayed":"asdf","organic_results_state":"Fully empty"},"organic_results":[],"pagination":{"current":1}}`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Serp(context.Background(), &SerpOptions{Q: "asdf"})
+	if err != nil {
+		t.Fatalf("Serp: %v", err)
+	}
+	// Optional params are omitted so the API applies its defaults.
+	if cap.RawQuery != "api_key=test-key&q=asdf" {
+		t.Fatalf("RawQuery = %q", cap.RawQuery)
+	}
+	if out.SearchInformation.OrganicResultsState != "Fully empty" || len(out.OrganicResults) != 0 ||
+		out.RelatedSearches != nil || out.Pagination.Next != nil || out.SearchInformation.TotalResults != nil {
+		t.Fatalf("unexpected result: %+v", out)
+	}
+}
+
+func TestClient_Serp_ErrorMapping(t *testing.T) {
+	// /serp error bodies need not follow the scraping Error envelope.
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(402)
+		_, _ = w.Write([]byte(`{"message":"Your requests quota is exceeded."}`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	_, err := c.Serp(context.Background(), &SerpOptions{Q: "coffee machines"})
+	var pr *PaymentRequiredError
+	if !errors.As(err, &pr) {
+		t.Fatalf("expected *PaymentRequiredError, got %v", err)
+	}
+	if pr.HTTPStatus != 402 || pr.Message != "Your requests quota is exceeded." {
+		t.Fatalf("APIError = %+v", pr.APIError)
+	}
+}
+
+func TestClient_Serp_ErrorWithoutMessage(t *testing.T) {
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(`{"error":"upstream failed"}`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	_, err := c.Serp(context.Background(), &SerpOptions{Q: "coffee machines"})
+	var se *ServerError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected *ServerError, got %v", err)
+	}
+	if se.Message != `{"error":"upstream failed"}` {
+		t.Fatalf("Message = %q", se.Message)
+	}
+}
+
 // --- Required-arg validation -----------------------------------------
 
 func TestClient_MissingURL(t *testing.T) {
@@ -363,6 +488,12 @@ func TestClient_MissingURL(t *testing.T) {
 	}
 	if _, err := c.Fields(context.Background(), &FieldsOptions{URL: "x"}); err == nil {
 		t.Error("Fields should require Fields")
+	}
+	if _, err := c.Serp(context.Background(), &SerpOptions{}); err == nil {
+		t.Error("Serp should require Q")
+	}
+	if _, err := c.Serp(context.Background(), nil); err == nil {
+		t.Error("Serp should reject nil opts")
 	}
 }
 

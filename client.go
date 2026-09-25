@@ -254,6 +254,35 @@ func (c *Client) Fields(ctx context.Context, opts *FieldsOptions) (*FieldsResult
 	return &out, nil
 }
 
+// Serp calls GET /serp and returns the parsed search engine results for
+// opts.Q. Flat 15 credits per search; failed searches are not charged.
+//
+// Unlike the page endpoints /serp is query-shaped: none of the scraping
+// options (JS, proxy, country, …) apply, so SerpOptions does not embed
+// CommonOptions.
+func (c *Client) Serp(ctx context.Context, opts *SerpOptions) (*SerpResult, error) {
+	if opts == nil || opts.Q == "" {
+		return nil, errors.New("webscrapingai: Serp requires opts.Q")
+	}
+	ctx, cancel := c.contextWithTimeout(ctx)
+	defer cancel()
+	params := query.Params{}
+	params.Set("q", opts.Q)
+	setIfNotEmpty(&params, "engine", opts.Engine)
+	setIfNotEmpty(&params, "gl", opts.GL)
+	setIfNotEmpty(&params, "hl", opts.HL)
+	setIntPtr(&params, "page", opts.Page)
+	body, _, err := c.do(ctx, "/serp", params)
+	if err != nil {
+		return nil, err
+	}
+	var out SerpResult
+	if err := decodeJSON(body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Account calls GET /account and returns the account quota info.
 func (c *Client) Account(ctx context.Context) (*AccountInfo, error) {
 	ctx, cancel := c.contextWithTimeout(ctx)
