@@ -26,8 +26,8 @@ library's `net/http`.
 
 ## Quick start
 
-[Sign up](https://webscraping.ai/auth/sign_up) to get an API key — the free
-trial includes 2,000 credits, no credit card required. Your key lives in the
+[Sign up](https://webscraping.ai/auth/sign_up) to get an API key — a free
+trial, no credit card required. Your key lives in the
 [dashboard](https://webscraping.ai/dashboard).
 
 ```go
@@ -100,7 +100,7 @@ func main() {
     }
     fmt.Println(fields.Result)
 
-    // Google search results (flat 15 credits per search)
+    // Google search results
     serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
         Q: "coffee machines",
     })
@@ -111,7 +111,7 @@ func main() {
         fmt.Println(r.Position, r.Title, r.Link)
     }
 
-    // Structured data for a page on a supported site (flat 15 credits)
+    // Structured data for a page on a supported site
     data, err := client.Data(ctx, &webscrapingai.DataOptions{
         URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     })
@@ -142,7 +142,7 @@ client, err := webscrapingai.NewClient(nil)
 `Serp` calls `GET /serp` and returns parsed Google results as a typed
 `*SerpResult`. It is query-shaped — pass the search query in `Q` instead
 of a URL. None of the page-scraping options (JS, proxy, country, …)
-apply. Flat 15 credits per search; failed searches are not charged.
+apply. Priced per search (see [pricing](https://webscraping.ai/docs#serp)); failed searches are not charged.
 
 `Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1
 before sending anything. The server also rejects an invalid page with a
@@ -195,8 +195,9 @@ beyond rejecting a blank one. An unsupported URL or page type returns a
 400 that is not charged (`*BadRequestError`). Its message lists what is
 supported. For other sites, use `Fields`.
 
-15 credits per request, including results with `ParseStatus`
-`parse_failed` or `not_found`; failed fetches are not charged. None of the
+Priced per site (see [pricing](https://webscraping.ai/docs#data)), including
+results with `ParseStatus` `parse_failed` or `not_found`; unsupported URLs and
+failed fetches are not charged. None of the
 page-scraping options (JS, proxy, headers, …) apply.
 
 ```go

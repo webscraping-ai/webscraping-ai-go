@@ -264,7 +264,8 @@ func (c *Client) Fields(ctx context.Context, opts *FieldsOptions) (*FieldsResult
 }
 
 // Serp calls GET /serp and returns the parsed search engine results for
-// opts.Q. Flat 15 credits per search; failed searches are not charged.
+// opts.Q. Priced per search (see https://webscraping.ai/docs#serp); failed
+// searches are not charged.
 //
 // opts.Q must not be blank and opts.Page, when set, must be >= 1; both
 // are checked before any request (the server also rejects an invalid
@@ -303,9 +304,9 @@ func (c *Client) Serp(ctx context.Context, opts *SerpOptions) (*SerpResult, erro
 
 // Data calls GET /data and returns structured JSON for a page on a
 // supported site (e.g. a YouTube video, TikTok profile, X post, LinkedIn
-// company, Instagram reel or Reddit thread). 15 credits per
-// request, including parse_failed and not_found results; failed fetches
-// are not charged.
+// company, Instagram reel or Reddit thread). Priced per site (see
+// https://webscraping.ai/docs#data), including parse_failed and not_found
+// results; unsupported URLs and failed fetches are not charged.
 //
 // opts.URL must not be blank; nothing else about it is checked
 // client-side. More sites are added on the server. An unsupported URL
