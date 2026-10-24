@@ -3,7 +3,15 @@
 All notable changes to `github.com/webscraping-ai/webscraping-ai-go` are
 documented in this file.
 
-## Unreleased
+## 4.3.0 — 2026-10-24
+### Added
+
+- `SerpOptions` gains `Pages` (`*int`, 1–5 consecutive pages starting at `Page`, returned as one de-duplicated list and billed per page returned), `Location` (a location name such as `"Austin, TX"` or `"Austin,Texas,United States"`, or a location id), `UULE`, `Lat`/`Lon` (`*float64`) and `Radius` (`*int`, meters). Every search runs from one fixed location (`Location`, `Lat` + `Lon`, or `UULE`, otherwise the capital of the `GL` country), so repeats and later pages are consistent; `GL` defaults to the location's country.
+- `Serp` rejects a `Pages` or `Radius` below 1 and a non-finite `Lat`/`Lon` (NaN, ±Inf) before sending. Ranges and which location options combine are checked by the server (a 400, not billed). `Lat`/`Lon` are sent as plain decimals with at most 7 fractional digits (`1e-7` → `0.0000001`, `48` → `48`), never in exponent notation.
+- `Client.SerpLocations` for the new `GET /serp/locations` endpoint (free, needs no API key): looks up location names to pass as `Location`. Options via `SerpLocationsOptions` (`Q`, `Limit`; `Limit` below 1 is rejected before sending; nil options are allowed). Returns `[]SerpLocation` (`ID`, `GoogleID`, `GoogleParentID` (nil when absent), `Name`, `CanonicalName`, `CountryCode`, `TargetType`, `Reach`, `GPS` as `[longitude, latitude]`); ids and reach are `int64`.
+- `SerpResult` fields: `SearchParameters.Pages`, `LocationRequested`, `LocationUsed`, `Lat`, `Lon`, `Radius`; `SerpOrganicResult.Page`; `SerpPagination.PagesReturned`. All are pointers, nil when absent. With `Pages` above 1, `Position` counts through the combined list.
+- `cmd/smoke` runs a two-page `Serp` from `"Austin, TX"` (asserting `location_used` contains Austin) and a `SerpLocations` lookup for `"austin"`.
+
 ### Changed
 
 - Docs: stop stating credit prices (they're set server-side and change); link to https://webscraping.ai/docs pricing instead.

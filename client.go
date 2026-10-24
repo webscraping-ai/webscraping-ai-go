@@ -27,10 +27,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -264,14 +266,20 @@ func (c *Client) Fields(ctx context.Context, opts *FieldsOptions) (*FieldsResult
 }
 
 // Serp calls GET /serp and returns the parsed search engine results for
-// opts.Q. Priced per search (see https://webscraping.ai/docs#serp); failed
-// searches are not charged.
+// opts.Q. Billed per results page returned (see
+// https://webscraping.ai/docs#serp); failed searches are not charged.
 //
-// opts.Q must not be blank and opts.Page, when set, must be >= 1; both
-// are checked before any request (the server also rejects an invalid
-// page with a 400, not billed; checking client-side saves the round
-// trip). Pages are 1-100: the server rejects a Page above 100 with a
-// 400. Q is sent exactly as given.
+// Every search runs from one fixed location (opts.Location, opts.Lat
+// and opts.Lon, or opts.UULE; otherwise the capital of the GL country),
+// so repeats and later pages stay consistent. opts.Pages fetches up to 5
+// consecutive pages in one call as one de-duplicated list.
+//
+// opts.Q must not be blank; opts.Page, opts.Pages and opts.Radius, when
+// set, must be >= 1; opts.Lat and opts.Lon must be finite. These are
+// checked before any request (the server also rejects them with a 400,
+// not billed; checking client-side saves the round trip). Ranges and
+// which location options combine are checked by the server only. Q and
+// Location are sent exactly as given.
 //
 // Unlike the page endpoints /serp is query-shaped: none of the scraping
 // options (JS, proxy, country, …) apply, so SerpOptions does not embed
@@ -283,6 +291,18 @@ func (c *Client) Serp(ctx context.Context, opts *SerpOptions) (*SerpResult, erro
 	if opts.Page != nil && *opts.Page < 1 {
 		return nil, errors.New("webscrapingai: Serp opts.Page must be >= 1")
 	}
+	if opts.Pages != nil && *opts.Pages < 1 {
+		return nil, errors.New("webscrapingai: Serp opts.Pages must be >= 1")
+	}
+	if opts.Lat != nil && !isFinite(*opts.Lat) {
+		return nil, errors.New("webscrapingai: Serp opts.Lat must be a finite number")
+	}
+	if opts.Lon != nil && !isFinite(*opts.Lon) {
+		return nil, errors.New("webscrapingai: Serp opts.Lon must be a finite number")
+	}
+	if opts.Radius != nil && *opts.Radius < 1 {
+		return nil, errors.New("webscrapingai: Serp opts.Radius must be >= 1")
+	}
 	ctx, cancel := c.contextWithTimeout(ctx)
 	defer cancel()
 	params := query.Params{}
@@ -291,6 +311,12 @@ func (c *Client) Serp(ctx context.Context, opts *SerpOptions) (*SerpResult, erro
 	setIfNotEmpty(&params, "gl", opts.GL)
 	setIfNotEmpty(&params, "hl", opts.HL)
 	setIntPtr(&params, "page", opts.Page)
+	setIntPtr(&params, "pages", opts.Pages)
+	setIfNotEmpty(&params, "location", opts.Location)
+	setIfNotEmpty(&params, "uule", opts.UULE)
+	setCoordPtr(&params, "lat", opts.Lat)
+	setCoordPtr(&params, "lon", opts.Lon)
+	setIntPtr(&params, "radius", opts.Radius)
 	body, _, err := c.do(ctx, "/serp", params)
 	if err != nil {
 		return nil, err
@@ -300,6 +326,36 @@ func (c *Client) Serp(ctx context.Context, opts *SerpOptions) (*SerpResult, erro
 		return nil, err
 	}
 	return &out, nil
+}
+
+// SerpLocations calls GET /serp/locations and returns the locations
+// matching opts.Q, most populous first. Pass a result's CanonicalName
+// (or ID) as SerpOptions.Location. The lookup is free and needs no API
+// key; the client sends its key as usual. opts may be nil.
+//
+// opts.Limit, when set, must be >= 1 (checked before any request); the
+// server rejects a Limit above 10 with a 400.
+func (c *Client) SerpLocations(ctx context.Context, opts *SerpLocationsOptions) ([]SerpLocation, error) {
+	if opts == nil {
+		opts = &SerpLocationsOptions{}
+	}
+	if opts.Limit != nil && *opts.Limit < 1 {
+		return nil, errors.New("webscrapingai: SerpLocations opts.Limit must be >= 1")
+	}
+	ctx, cancel := c.contextWithTimeout(ctx)
+	defer cancel()
+	params := query.Params{}
+	setIfNotEmpty(&params, "q", opts.Q)
+	setIntPtr(&params, "limit", opts.Limit)
+	body, _, err := c.do(ctx, "/serp/locations", params)
+	if err != nil {
+		return nil, err
+	}
+	var out []SerpLocation
+	if err := decodeJSON(body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Data calls GET /data and returns structured JSON for a page on a
@@ -445,6 +501,30 @@ func setIntPtr(p *query.Params, key string, value *int) {
 	if value != nil {
 		p.Set(key, *value)
 	}
+}
+
+// setCoordPtr sets a lat/lon value in the only form the API accepts
+// (-?digits[.digits]): fixed-point with at most 7 fractional digits,
+// trailing zeros and a trailing "." trimmed, so 1e-7 is "0.0000001" and
+// 48 is "48" (never exponent notation).
+func setCoordPtr(p *query.Params, key string, value *float64) {
+	if value != nil {
+		p.Set(key, formatCoord(*value))
+	}
+}
+
+func formatCoord(v float64) string {
+	s := strconv.FormatFloat(v, 'f', 7, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimSuffix(s, ".")
+	if s == "-0" {
+		s = "0"
+	}
+	return s
+}
+
+func isFinite(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
 // unwrapJSONString returns the inner string when body is a JSON-encoded

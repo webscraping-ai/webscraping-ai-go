@@ -113,7 +113,8 @@ type SerpOptions struct {
 	// default) is supported today. Empty string defers to the default.
 	Engine string
 	// GL is the two-letter country code for geolocation of the search
-	// (Google's gl parameter). API default: "us".
+	// (Google's gl parameter). Defaults to the country of Location,
+	// Lat/Lon or UULE, otherwise "us".
 	GL string
 	// HL is the two-letter language code for the results (Google's hl
 	// parameter). API default: "en".
@@ -122,6 +123,46 @@ type SerpOptions struct {
 	// page). API default: 1. Values below 1 are rejected client-side;
 	// the server rejects a page above 100 with a 400 (not billed).
 	Page *int
+	// Pages is the number of consecutive results pages to fetch in one
+	// call, starting at Page (1 to 5, API default 1). Duplicates across
+	// pages are removed, Position counts through the combined list and
+	// each result gets a Page. Billed per results page returned. Values
+	// below 1 are rejected client-side; the server rejects more than 5
+	// (or Page+Pages-1 above 100) with a 400 (not billed).
+	Pages *int
+	// Location is where the search runs from: a location name such as
+	// "Austin,Texas,United States" or "Austin, TX", or an id from
+	// Client.SerpLocations. Large cities also match local names, e.g.
+	// "Москва". An unknown name returns a 400 (not billed). Cannot be
+	// combined with UULE, Lat or Lon. Sent as given.
+	Location string
+	// UULE is a Google-encoded location ("w+CAIQICI…" or "a+…"). Cannot
+	// be combined with Location, Lat or Lon.
+	UULE string
+	// Lat is the latitude of the search origin in decimal degrees (-90
+	// to 90). Requires Lon; cannot be combined with Location or UULE.
+	// Must be finite (NaN and ±Inf are rejected client-side). Sent as a
+	// plain decimal with at most 7 fractional digits.
+	Lat *float64
+	// Lon is the longitude of the search origin in decimal degrees (-180
+	// to 180). Requires Lat; cannot be combined with Location or UULE.
+	// Must be finite. Sent like Lat.
+	Lon *float64
+	// Radius is the radius in meters around Location or Lat/Lon (1 to
+	// 1000). Values below 1 are rejected client-side.
+	Radius *int
+}
+
+// SerpLocationsOptions are the options for Client.SerpLocations. A nil
+// *SerpLocationsOptions is the same as an empty one.
+type SerpLocationsOptions struct {
+	// Q is part of a location name, e.g. "austin". Matches English
+	// names. Empty returns the most populous locations. Sent as given.
+	Q string
+	// Limit is the maximum number of locations to return (1 to 10, API
+	// default 10). Values below 1 are rejected client-side; the server
+	// rejects more than 10 with a 400.
+	Limit *int
 }
 
 // DataOptions are the options for Client.Data.

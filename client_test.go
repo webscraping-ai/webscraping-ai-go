@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -46,8 +48,9 @@ func newTestClient(t *testing.T, srv *httptest.Server) *Client {
 	return c
 }
 
-func boolPtr(b bool) *bool { return &b }
-func intPtr(i int) *int    { return &i }
+func boolPtr(b bool) *bool        { return &b }
+func intPtr(i int) *int           { return &i }
+func floatPtr(f float64) *float64 { return &f }
 
 // --- NewClient ---------------------------------------------------------
 
@@ -347,7 +350,7 @@ func TestClient_Fields(t *testing.T) {
 // --- Serp -------------------------------------------------------------
 
 const serpBody = `{
-  "search_parameters": {"engine":"google","q":"coffee machines","gl":"de","hl":"de","page":2},
+  "search_parameters": {"engine":"google","q":"coffee machines","gl":"de","hl":"de","page":2,"location_used":"Berlin,Berlin,Germany","lat":52.52,"lon":13.405},
   "search_information": {"query_displayed":"coffee machines","organic_results_state":"Results for exact spelling","total_results":160000000},
   "organic_results": [
     {"position":1,"title":"Best Coffee Machines","link":"https://www.example.com/best","domain":"example.com","displayed_link":"www.example.com › Reviews","snippet":"We tested 20 machines","date":"Apr 13, 2026"},
@@ -661,6 +664,257 @@ func TestClient_Serp_SendsQUntrimmedAndPageOne(t *testing.T) {
 	}
 	if want := "api_key=test-key&q=%20coffee%20&page=1"; cap.RawQuery != want {
 		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+}
+
+// --- Serp location + pages ------------------------------------------
+
+const serpPagesBody = `{
+  "search_parameters": {"engine":"google","q":"coffee machines","gl":"us","hl":"en","page":1,"pages":2,"location_requested":"Austin, TX","location_used":"Austin,Texas,United States","radius":500},
+  "search_information": {"query_displayed":"coffee machines","organic_results_state":"Results for exact spelling"},
+  "organic_results": [
+    {"position":1,"title":"A","link":"https://a.test/","domain":"a.test","displayed_link":"a.test","page":1},
+    {"position":11,"title":"B","link":"https://b.test/","domain":"b.test","displayed_link":"b.test","page":2}
+  ],
+  "pagination": {"current":2,"next":3,"pages_returned":2}
+}`
+
+func TestClient_Serp_LocationAndPages(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(serpPagesBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Serp(context.Background(), &SerpOptions{
+		Q:        "coffee machines",
+		Pages:    intPtr(2),
+		Location: " Austin, TX ",
+		Radius:   intPtr(500),
+	})
+	if err != nil {
+		t.Fatalf("Serp: %v", err)
+	}
+	// Location is sent untrimmed.
+	if want := "api_key=test-key&q=coffee%20machines&pages=2&location=%20Austin%2C%20TX%20&radius=500"; cap.RawQuery != want {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+	sp := out.SearchParameters
+	if sp.Pages == nil || *sp.Pages != 2 || sp.LocationRequested == nil || *sp.LocationRequested != "Austin, TX" ||
+		sp.LocationUsed == nil || *sp.LocationUsed != "Austin,Texas,United States" ||
+		sp.Radius == nil || *sp.Radius != 500 || sp.Lat != nil || sp.Lon != nil {
+		t.Fatalf("SearchParameters = %+v", sp)
+	}
+	if len(out.OrganicResults) != 2 || out.OrganicResults[1].Position != 11 ||
+		out.OrganicResults[1].Page == nil || *out.OrganicResults[1].Page != 2 {
+		t.Fatalf("OrganicResults = %+v", out.OrganicResults)
+	}
+	if out.Pagination.PagesReturned == nil || *out.Pagination.PagesReturned != 2 {
+		t.Fatalf("Pagination = %+v", out.Pagination)
+	}
+}
+
+func TestClient_Serp_SinglePageOmitsPagesFields(t *testing.T) {
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(serpBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Serp(context.Background(), &SerpOptions{Q: "coffee machines"})
+	if err != nil {
+		t.Fatalf("Serp: %v", err)
+	}
+	sp := out.SearchParameters
+	if sp.Pages != nil || sp.LocationRequested != nil || sp.Radius != nil ||
+		out.OrganicResults[0].Page != nil || out.Pagination.PagesReturned != nil {
+		t.Fatalf("absent optional fields should be nil: %+v", out)
+	}
+	// Without a location the search still runs from the GL capital.
+	if sp.LocationUsed == nil || *sp.LocationUsed != "Berlin,Berlin,Germany" ||
+		sp.Lat == nil || *sp.Lat != 52.52 || sp.Lon == nil || *sp.Lon != 13.405 {
+		t.Fatalf("fallback location = %+v", sp)
+	}
+}
+
+func TestClient_Serp_LatLonWireFormat(t *testing.T) {
+	cases := []struct {
+		lat, lon         float64
+		wantLat, wantLon string
+	}{
+		{30.2672, -97.7431, "30.2672", "-97.7431"},
+		{0, 0, "0", "0"},
+		{math.Copysign(0, -1), math.Copysign(0, -1), "0", "0"},
+		{1e-7, -1e-7, "0.0000001", "-0.0000001"},
+		{1e-9, -1e-9, "0", "0"},
+		{1e-5, 1.5e-6, "0.00001", "0.0000015"},
+		{48, -180, "48", "-180"},
+		{90, 100, "90", "100"},
+		{-33.86882, 151.2092955, "-33.86882", "151.2092955"},
+		{12.34567891, 0.12345675, "12.3456789", "0.1234568"},
+	}
+	var raw string
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		raw = r.URL.RawQuery
+		_, _ = w.Write([]byte(serpBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	for _, tc := range cases {
+		if _, err := c.Serp(context.Background(), &SerpOptions{Q: "x", Lat: floatPtr(tc.lat), Lon: floatPtr(tc.lon)}); err != nil {
+			t.Fatalf("Serp(%v, %v): %v", tc.lat, tc.lon, err)
+		}
+		if want := "api_key=test-key&q=x&lat=" + tc.wantLat + "&lon=" + tc.wantLon; raw != want {
+			t.Errorf("lat=%v lon=%v: RawQuery = %q, want %q", tc.lat, tc.lon, raw, want)
+		}
+	}
+}
+
+func TestFormatCoord_MatchesServerPattern(t *testing.T) {
+	pattern := regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+	for _, v := range []float64{0, 1e-7, 1e-9, -1e-20, 1e-300, 5e-324, 179.99999999, -89.9999999, 1e21, 123456789.123} {
+		if s := formatCoord(v); !pattern.MatchString(s) {
+			t.Errorf("formatCoord(%v) = %q, not a plain decimal", v, s)
+		}
+	}
+}
+
+func TestClient_Serp_RejectsInvalidLocationArgsBeforeRequest(t *testing.T) {
+	hits := 0
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) { hits++ })
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	cases := map[string]*SerpOptions{
+		"pages 0":       {Q: "coffee", Pages: intPtr(0)},
+		"pages -1":      {Q: "coffee", Pages: intPtr(-1)},
+		"radius 0":      {Q: "coffee", Lat: floatPtr(1), Lon: floatPtr(1), Radius: intPtr(0)},
+		"radius -5":     {Q: "coffee", Location: "Austin, TX", Radius: intPtr(-5)},
+		"lat NaN":       {Q: "coffee", Lat: floatPtr(math.NaN()), Lon: floatPtr(1)},
+		"lat +Inf":      {Q: "coffee", Lat: floatPtr(math.Inf(1)), Lon: floatPtr(1)},
+		"lon -Inf":      {Q: "coffee", Lat: floatPtr(1), Lon: floatPtr(math.Inf(-1))},
+		"lon NaN":       {Q: "coffee", Lat: floatPtr(1), Lon: floatPtr(math.NaN())},
+		"lat only -Inf": {Q: "coffee", Lat: floatPtr(math.Inf(-1))},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := c.Serp(context.Background(), opts); err == nil {
+				t.Fatalf("expected an error for %s", name)
+			}
+		})
+	}
+	if hits != 0 {
+		t.Fatalf("invalid args reached the server %d times", hits)
+	}
+}
+
+func TestClient_Serp_LeavesLocationCombinationsToServer(t *testing.T) {
+	// Mutual exclusivity and ranges are server-side only (free 400).
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(`{"message":"location cannot be combined with uule"}`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	_, err := c.Serp(context.Background(), &SerpOptions{Q: "x", Location: "Austin", UULE: "w+CAIQICI", Pages: intPtr(9), Radius: intPtr(5000)})
+	var br *BadRequestError
+	if !errors.As(err, &br) {
+		t.Fatalf("expected *BadRequestError, got %v", err)
+	}
+	if want := "api_key=test-key&q=x&pages=9&location=Austin&uule=w%2BCAIQICI&radius=5000"; cap.RawQuery != want {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+}
+
+// --- SerpLocations ----------------------------------------------------
+
+const serpLocationsBody = `[
+  {"id":"1026201","google_id":1026201,"google_parent_id":21176,"name":"Austin","canonical_name":"Austin,Texas,United States","country_code":"US","target_type":"City","reach":974447,"gps":[-97.7431,30.2672]},
+  {"id":"2840","google_id":2840,"name":"United States","canonical_name":"United States","country_code":"US","target_type":"Country","reach":9007199254740993,"gps":[-77.0369,38.9072]}
+]`
+
+func TestClient_SerpLocations(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(serpLocationsBody))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.SerpLocations(context.Background(), &SerpLocationsOptions{Q: "austin", Limit: intPtr(3)})
+	if err != nil {
+		t.Fatalf("SerpLocations: %v", err)
+	}
+	if cap.Method != http.MethodGet || cap.Path != "/serp/locations" {
+		t.Fatalf("request = %s %s", cap.Method, cap.Path)
+	}
+	if want := "api_key=test-key&q=austin&limit=3"; cap.RawQuery != want {
+		t.Fatalf("RawQuery = %q, want %q", cap.RawQuery, want)
+	}
+	if len(out) != 2 {
+		t.Fatalf("len = %d", len(out))
+	}
+	a := out[0]
+	if a.ID != "1026201" || a.GoogleID != 1026201 || a.GoogleParentID == nil || *a.GoogleParentID != 21176 ||
+		a.Name != "Austin" || a.CanonicalName != "Austin,Texas,United States" || a.CountryCode != "US" ||
+		a.TargetType != "City" || a.Reach != 974447 || len(a.GPS) != 2 || a.GPS[0] != -97.7431 || a.GPS[1] != 30.2672 {
+		t.Fatalf("out[0] = %+v", a)
+	}
+	us := out[1]
+	if us.GoogleParentID != nil || us.TargetType != "Country" || us.Reach != 9007199254740993 {
+		t.Fatalf("out[1] = %+v", us)
+	}
+}
+
+func TestClient_SerpLocations_NilOptsSendsNoParams(t *testing.T) {
+	srv, cap := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":"2840","google_id":2840,"google_parent_id":null,"name":"United States","canonical_name":"United States","country_code":"US","target_type":"Country","reach":1,"gps":[0,0]}]`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.SerpLocations(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("SerpLocations: %v", err)
+	}
+	if cap.RawQuery != "api_key=test-key" {
+		t.Fatalf("RawQuery = %q", cap.RawQuery)
+	}
+	if len(out) != 1 || out[0].GoogleParentID != nil {
+		t.Fatalf("out = %+v", out)
+	}
+}
+
+func TestClient_SerpLocations_RejectsInvalidLimitBeforeRequest(t *testing.T) {
+	hits := 0
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) { hits++ })
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	for _, limit := range []int{0, -1} {
+		if _, err := c.SerpLocations(context.Background(), &SerpLocationsOptions{Limit: intPtr(limit)}); err == nil {
+			t.Fatalf("expected an error for limit %d", limit)
+		}
+	}
+	if hits != 0 {
+		t.Fatalf("invalid args reached the server %d times", hits)
+	}
+}
+
+func TestClient_SerpLocations_BadRequestMapping(t *testing.T) {
+	srv, _ := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		_, _ = w.Write([]byte(`{"message":"Invalid limit parameter: expected a whole number from 1 to 10"}`))
+	})
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	_, err := c.SerpLocations(context.Background(), &SerpLocationsOptions{Limit: intPtr(11)})
+	var br *BadRequestError
+	if !errors.As(err, &br) || !strings.Contains(br.Message, "Invalid limit") {
+		t.Fatalf("expected *BadRequestError, got %v", err)
 	}
 }
 

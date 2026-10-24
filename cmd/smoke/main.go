@@ -1,8 +1,9 @@
 // Hand-run smoke test against the live API. Not part of `go test ./...`
-// — costs ~46 credits per full sweep: page tools run with js=false and
+// — costs ~76 credits per full sweep: page tools run with js=false and
 // the datacenter proxy (html/text/selected/selected_multiple 4 × 1,
-// question/fields 2 × 6), plus 15 for the SERP search and 15 for one
-// /data call. The /data unsupported-URL check is a free 400.
+// question/fields 2 × 6), plus 15 for the SERP search, 30 for the
+// two-page located SERP search and 15 for one /data call. The /data
+// unsupported-URL check is a free 400 and /serp/locations is free.
 //
 // Each case asserts on the result shape, not just the absence of an
 // error, and a panic in one case is reported as a FAIL without stopping
@@ -131,6 +132,37 @@ func main() {
 			return fmt.Sprintf("state=%q results=%d top=%s",
 				out.SearchInformation.OrganicResultsState, len(out.OrganicResults), top), nil
 		}},
+		{"serp_location", func() (string, error) {
+			out, err := client.Serp(ctx, &webscrapingai.SerpOptions{
+				Q:        "coffee machines",
+				Location: "Austin, TX",
+				Pages:    &twoPages,
+			})
+			if err != nil {
+				return "", err
+			}
+			if len(out.OrganicResults) == 0 {
+				return "", fmt.Errorf("no organic_results (state=%q)", out.SearchInformation.OrganicResultsState)
+			}
+			used := out.SearchParameters.LocationUsed
+			if used == nil || !strings.Contains(*used, "Austin") {
+				return "", fmt.Errorf("search_parameters.location_used = %v, want it to contain Austin", used)
+			}
+			return fmt.Sprintf("location_used=%q results=%d", *used, len(out.OrganicResults)), nil
+		}},
+		{"serp_locations", func() (string, error) {
+			out, err := client.SerpLocations(ctx, &webscrapingai.SerpLocationsOptions{Q: "austin", Limit: &threeLocations})
+			if err != nil {
+				return "", err
+			}
+			if len(out) == 0 {
+				return "", errors.New("no locations")
+			}
+			if !strings.Contains(out[0].CanonicalName, "Austin") {
+				return "", fmt.Errorf("first canonical_name = %q, want it to contain Austin", out[0].CanonicalName)
+			}
+			return fmt.Sprintf("count=%d first=%q id=%s", len(out), out[0].CanonicalName, out[0].ID), nil
+		}},
 		{"data", func() (string, error) {
 			out, err := client.Data(ctx, &webscrapingai.DataOptions{URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"})
 			if err != nil {
@@ -198,7 +230,11 @@ func main() {
 	}
 }
 
-var jsOff = false
+var (
+	jsOff          = false
+	twoPages       = 2
+	threeLocations = 3
+)
 
 // runCase runs one case, turning a panic into an error so the sweep
 // continues.

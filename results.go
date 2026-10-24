@@ -35,7 +35,7 @@ type FieldsResult struct {
 type SelectedMultipleResult [][]string
 
 // SerpResult is the parsed response from Client.Serp. Field names follow
-// the common SERP API naming (SerpApi family).
+// the common SERP API naming.
 type SerpResult struct {
 	// SearchParameters are the normalized parameters the search ran with.
 	SearchParameters SerpSearchParameters `json:"search_parameters"`
@@ -57,6 +57,23 @@ type SerpSearchParameters struct {
 	GL     string `json:"gl"`
 	HL     string `json:"hl"`
 	Page   int    `json:"page"`
+	// Pages is the number of pages requested; nil unless Pages above 1
+	// was sent.
+	Pages *int `json:"pages,omitempty"`
+	// LocationRequested is the Location or UULE as sent; nil when
+	// neither was given.
+	LocationRequested *string `json:"location_requested,omitempty"`
+	// LocationUsed is the canonical name of the location the search ran
+	// from: the match for Location, or the capital of the GL country
+	// when no location was given. Nil for searches located by Lat/Lon
+	// or a coordinate UULE.
+	LocationUsed *string `json:"location_used,omitempty"`
+	// Lat and Lon are the point the search ran from, including the GL
+	// capital fallback. Nil only when GL is outside the location list.
+	Lat *float64 `json:"lat,omitempty"`
+	Lon *float64 `json:"lon,omitempty"`
+	// Radius is the Radius sent; nil when none was.
+	Radius *int `json:"radius,omitempty"`
 }
 
 // SerpSearchInformation mirrors SerpResult.search_information.
@@ -81,6 +98,8 @@ type SerpSearchInformation struct {
 type SerpOrganicResult struct {
 	// Position is the 1-based rank within this page; it restarts at 1 on
 	// every page. Compute (page-1)*10 + Position for an absolute rank.
+	// With SerpOptions.Pages above 1 it counts through the combined
+	// de-duplicated list instead (1..N).
 	Position int    `json:"position"`
 	Title    string `json:"title"`
 	Link     string `json:"link"`
@@ -94,6 +113,9 @@ type SerpOrganicResult struct {
 	// Date is the date shown next to the snippet, verbatim (absolute or
 	// relative), when present.
 	Date *string `json:"date,omitempty"`
+	// Page is the results page this result came from; set only when
+	// SerpOptions.Pages is above 1.
+	Page *int `json:"page,omitempty"`
 }
 
 // SerpRelatedSearch is one entry of SerpResult.RelatedSearches.
@@ -106,6 +128,35 @@ type SerpPagination struct {
 	Current int `json:"current"`
 	// Next is the next page number; nil when no further page is offered.
 	Next *int `json:"next,omitempty"`
+	// PagesReturned is how many pages came back (and were billed); set
+	// only when SerpOptions.Pages is above 1. It can be lower than Pages
+	// when Google has no further page or a later page couldn't be
+	// fetched.
+	PagesReturned *int `json:"pages_returned,omitempty"`
+}
+
+// SerpLocation is one entry of the Client.SerpLocations response.
+//
+// TargetType is a plain string, not an enum: Google adds target types.
+type SerpLocation struct {
+	// ID is the location id, usable as SerpOptions.Location. It is the
+	// Google geo target criteria id, as a string.
+	ID       string `json:"id"`
+	GoogleID int64  `json:"google_id"`
+	// GoogleParentID is nil when absent (e.g. for countries).
+	GoogleParentID *int64 `json:"google_parent_id,omitempty"`
+	Name           string `json:"name"`
+	// CanonicalName is the full name to pass as SerpOptions.Location,
+	// e.g. "Austin,Texas,United States".
+	CanonicalName string `json:"canonical_name"`
+	CountryCode   string `json:"country_code"`
+	// TargetType is Google's target type, e.g. "City", "District",
+	// "State", "Region" or "Country". An open set.
+	TargetType string `json:"target_type"`
+	// Reach is the approximate population, used for ordering.
+	Reach int64 `json:"reach"`
+	// GPS is the point the search is sent from, as [longitude, latitude].
+	GPS []float64 `json:"gps"`
 }
 
 // DataResult is the parsed response from Client.Data.

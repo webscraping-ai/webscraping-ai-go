@@ -142,12 +142,13 @@ client, err := webscrapingai.NewClient(nil)
 `Serp` calls `GET /serp` and returns parsed Google results as a typed
 `*SerpResult`. It is query-shaped — pass the search query in `Q` instead
 of a URL. None of the page-scraping options (JS, proxy, country, …)
-apply. Priced per search (see [pricing](https://webscraping.ai/docs#serp)); failed searches are not charged.
+apply. Billed per results page returned (see [pricing](https://webscraping.ai/docs#serp)); failed searches are not charged.
 
-`Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1
-before sending anything. The server also rejects an invalid page with a
-400 (not billed); checking client-side saves the round trip. Pages are
-1–100: the server rejects a `Page` above 100 with a 400.
+`Serp` rejects a blank (empty or whitespace-only) `Q`, a `Page`, `Pages` or
+`Radius` below 1, and a non-finite `Lat`/`Lon` (NaN, ±Inf) before sending
+anything. The server also rejects these with a 400 (not billed); checking
+client-side saves the round trip. Pages are 1–100: the server rejects a
+`Page` above 100 with a 400.
 
 ```go
 page := 2
@@ -182,6 +183,72 @@ if serp.Pagination.Next != nil {
 Optional response fields (`Snippet`, `Date`, `ShowingResultsFor`,
 `TotalResults`, `Pagination.Next`) are pointers and are `nil` when the
 API omits them; `RelatedSearches` is `nil` when the page shows none.
+
+### Location and multiple pages
+
+Every search runs from one fixed location — `Location`, `Lat` + `Lon`, or
+`UULE`, otherwise the capital of the `GL` country — so repeats and later
+pages are consistent. `GL` defaults to the location's country. `Pages`
+(1–5) fetches consecutive pages starting at `Page` as one de-duplicated
+list, billed per page returned.
+
+```go
+pages := 2
+serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
+    Q:        "coffee machines",
+    Location: "Austin, TX", // or "Austin,Texas,United States", or an id such as "1026201"
+    Pages:    &pages,       // 1-5
+})
+if err != nil {
+    log.Fatal(err)
+}
+if used := serp.SearchParameters.LocationUsed; used != nil {
+    fmt.Println(*used) // "Austin,Texas,United States"
+}
+for _, r := range serp.OrganicResults {
+    // With Pages > 1, Position counts through the combined list and
+    // Page says which results page each result came from.
+    if r.Page != nil {
+        fmt.Println(r.Position, *r.Page, r.Title)
+    }
+}
+if n := serp.Pagination.PagesReturned; n != nil {
+    fmt.Println("pages returned:", *n)
+}
+```
+
+Instead of `Location`, pass `Lat` and `Lon` (`*float64`, decimal degrees;
+sent as plain decimals with up to 7 fractional digits) or a Google-encoded
+`UULE`; `Radius` (meters, 1–1000) applies to `Location` or `Lat`/`Lon`.
+Which of these combine is checked by the server (a 400, not billed).
+`SearchParameters.Pages`, `Pagination.PagesReturned` and each result's
+`Page` are set only when `Pages` is above 1. `LocationRequested` is the
+`Location` or `UULE` as sent. `LocationUsed` is the matched name for
+`Location`, or the `GL` country's capital when no location was given; it
+is `nil` for `Lat`/`Lon` and coordinate-`UULE` searches. `Lat`/`Lon` are
+the point the search ran from, including that fallback (`nil` only when
+`GL` is outside the location list). `Radius` and `Pages` are `nil` when
+not sent.
+
+`SerpLocations` looks up location names (`GET /serp/locations`, free and
+needs no API key). It matches English names and returns up to 10
+locations, most populous first; pass a result's `CanonicalName` (or `ID`)
+as `Location`:
+
+```go
+limit := 3
+locations, err := client.SerpLocations(ctx, &webscrapingai.SerpLocationsOptions{
+    Q:     "austin", // optional; empty returns the most populous locations
+    Limit: &limit,   // optional, 1-10 (default 10)
+})
+if err != nil {
+    log.Fatal(err)
+}
+for _, l := range locations {
+    // GPS is [longitude, latitude]; GoogleParentID is nil for countries.
+    fmt.Println(l.ID, l.CanonicalName, l.TargetType, l.Reach, l.GPS)
+}
+```
 
 ## Structured data (/data)
 
@@ -331,7 +398,7 @@ go test ./...           # all tests
 go vet ./...
 gofmt -l .              # any output → unformatted files
 
-# Live smoke (hits production, costs ~46 credits):
+# Live smoke (hits production and costs credits; see cmd/smoke):
 WEBSCRAPING_AI_API_KEY=... go run ./cmd/smoke
 ```
 
