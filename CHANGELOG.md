@@ -19,19 +19,19 @@ documented in this file.
 ## 4.2.0 — 2026-09-25
 ### Added
 
-- `Client.Data` for the new `GET /data` endpoint: structured JSON for a page on a supported site (e.g. a YouTube video, TikTok profile, X post, LinkedIn company, Instagram reel or Reddit thread). Options via `DataOptions` (`URL` required; `Country`, `Transcript`, `TranscriptLanguage` optional; `Params` for extra query parameters, sent as-is). Returns a `*DataResult` with `RequestParameters` (`URL`, `Provider`, `Type`), `ParseStatus` and `Data` as `json.RawMessage`. A JSON null `data` decodes to nil, including when you unmarshal a `DataResult` yourself. 15 credits per request; failed fetches are not charged.
+- `Client.Data` for the new `GET /data` endpoint: structured JSON for a page on a supported site (e.g. a YouTube video, TikTok profile, X post, LinkedIn company, Instagram reel or Reddit thread). Options via `DataOptions` (`URL` required; `Country`, `Transcript`, `TranscriptLanguage` optional; `Params` for extra query parameters, sent as-is). Returns a `*DataResult` with `RequestParameters` (`URL`, `Provider`, `Type`), `ParseStatus` and `Data` as `json.RawMessage`. A JSON null `data` decodes to nil, including when you unmarshal a `DataResult` yourself. Priced per site (see https://webscraping.ai/docs#data); failed fetches are not charged.
 - The client doesn't check the site or page type. Only a blank `URL` is rejected before sending. Sites are added on the server, and an unsupported URL or page type returns a 400 that is not charged (`*BadRequestError`). Its message lists what is supported. `Provider`, `Type` and `ParseStatus` are plain strings.
 - `Params` rejects `api_key` and `url` keys (including case and `[...]` variants), and the typed option names `country`, `transcript` and `transcript_language` whether or not the matching field is set (the error names the field to use).
-- `cmd/smoke` runs one `Data` call on a YouTube video (asserting `parse_status` ok, provider youtube and a non-empty title) and checks that the server answers `https://example.com/` with a 400 whose message contains `Unsupported URL` (~46 credits per sweep).
+- `cmd/smoke` runs one `Data` call on a YouTube video (asserting `parse_status` ok, provider youtube and a non-empty title) and checks that the server answers `https://example.com/` with a 400 whose message contains `Unsupported URL`.
 
 ## 4.1.0 — 2026-09-25
 
 ### Added
 
-- `Client.Serp` for the new `GET /serp` endpoint: parsed Google search results for a query. Options via `SerpOptions` (`Q` required; `Engine`, `GL`, `HL`, `Page` optional). Returns a typed `*SerpResult` (`SearchParameters`, `SearchInformation`, `OrganicResults`, `RelatedSearches`, `Pagination`); optional response fields are pointers. Flat 15 credits per search; failed searches are not charged.
+- `Client.Serp` for the new `GET /serp` endpoint: parsed Google search results for a query. Options via `SerpOptions` (`Q` required; `Engine`, `GL`, `HL`, `Page` optional). Returns a typed `*SerpResult` (`SearchParameters`, `SearchInformation`, `OrganicResults`, `RelatedSearches`, `Pagination`); optional response fields are pointers. Priced per search (see https://webscraping.ai/docs#serp); failed searches are not charged.
 - `cmd/smoke` now exercises `Serp`.
 - `Serp` rejects a blank (empty or whitespace-only) `Q` and a `Page` below 1 before sending a request; the server also rejects an invalid page with a 400 (not billed), so checking client-side saves the round trip. `Q` is sent untrimmed. Pages are 1–100: the server rejects a `Page` above 100 with a 400.
-- `cmd/smoke` asserts on results (non-empty page output, at least one non-empty `SelectedMultiple` match, `Fields` `result` present, `Serp` organic results and echoed query), runs page tools with `js=false` and the datacenter proxy (~31 credits per sweep), turns panics into FAIL lines, and redacts the API key from output.
+- `cmd/smoke` asserts on results (non-empty page output, at least one non-empty `SelectedMultiple` match, `Fields` `result` present, `Serp` organic results and echoed query), runs page tools with `js=false` and the datacenter proxy to keep the sweep cheap, turns panics into FAIL lines, and redacts the API key from output.
 
 ### Fixed
 
