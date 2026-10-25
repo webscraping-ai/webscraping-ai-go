@@ -33,9 +33,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Lint runs on a newer Go than the test matrix: staticcheck 2026.1 needs
+      # Go >= 1.25, and setup-go sets GOTOOLCHAIN=local (no auto-download).
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: gofmt
         # Fails if any source file isn't already gofmt-formatted.
