@@ -1,9 +1,11 @@
 // Hand-run smoke test against the live API. Not part of `go test ./...`
-// — costs ~76 credits per full sweep: page tools run with js=false and
-// the datacenter proxy (html/text/selected/selected_multiple 4 × 1,
-// question/fields 2 × 6), plus 15 for the SERP search, 30 for the
-// two-page located SERP search and 15 for one /data call. The /data
-// unsupported-URL check is a free 400 and /serp/locations is free.
+// — uses real credits (see https://webscraping.ai/docs for pricing): page
+// tools (html/text/selected/selected_multiple, question/fields) run with
+// js=false and the datacenter proxy to keep the cost down, plus one SERP
+// search, a two-page located SERP search (billed per page returned) and
+// one /data call on a page with a dedicated parser. /serp/locations is
+// free. The /data any-site check on example.com is not charged if it
+// returns 503, 422 or a 500 timeout; a success envelope is charged.
 //
 // Each case asserts on the result shape, not just the absence of an
 // error, and a panic in one case is reported as a FAIL without stopping
@@ -46,7 +48,7 @@ func main() {
 	ctx := context.Background()
 	target := "https://example.com"
 	// js=false + datacenter keeps every page-tool call at the
-	// cost the header claims: 1 credit per page call, 6 per AI call.
+	// documented minimum cost.
 	common := webscrapingai.CommonOptions{JS: &jsOff, Proxy: "datacenter"}
 	nonEmpty := func(s string, err error) (string, error) {
 		if err == nil && strings.TrimSpace(s) == "" {
@@ -188,21 +190,37 @@ func main() {
 			return fmt.Sprintf("provider=%s type=%s parse_status=%s title=%q",
 				out.RequestParameters.Provider, out.RequestParameters.Type, out.ParseStatus, title), nil
 		}},
-		{"data_unsupported", func() (string, error) {
-			// No client-side site filter: the server must answer with a
-			// free 400 for a site /data doesn't support.
-			_, err := client.Data(ctx, &webscrapingai.DataOptions{URL: "https://example.com/"})
-			var br *webscrapingai.BadRequestError
-			if !errors.As(err, &br) {
-				if err == nil {
-					return "", errors.New("expected a 400 from the server, got success")
+		{"data_any_site", func() (string, error) {
+			// /data accepts any public page. A page without a dedicated
+			// parser may come back as a success envelope, a 503
+			// structure_processing (learning outlasted the request), a
+			// 422 structure_unavailable, both as a plain *APIError, or a
+			// 500 timeout (extracting the data or loading the page ran out
+			// of time) as a *ServerError wrapping one. None of the
+			// non-success outcomes is charged.
+			out, err := client.Data(ctx, &webscrapingai.DataOptions{URL: "https://example.com/"})
+			if err != nil {
+				want := map[int]string{503: "structure_processing", 422: "structure_unavailable", 500: "timeout"}
+				var apiErr *webscrapingai.APIError
+				if !errors.As(err, &apiErr) || want[apiErr.HTTPStatus] == "" {
+					return "", fmt.Errorf("expected success, 503, 422 or 500, got %w", err)
 				}
-				return "", fmt.Errorf("expected *BadRequestError, got %w", err)
+				var body struct {
+					ErrorCode string `json:"error_code"`
+				}
+				if jerr := json.Unmarshal([]byte(apiErr.ResponseBody), &body); jerr != nil {
+					return "", fmt.Errorf("%d body is not JSON: %w", apiErr.HTTPStatus, jerr)
+				}
+				if body.ErrorCode != want[apiErr.HTTPStatus] {
+					return "", fmt.Errorf("%d error_code = %q, want %s", apiErr.HTTPStatus, body.ErrorCode, want[apiErr.HTTPStatus])
+				}
+				return fmt.Sprintf("HTTP %d %s", apiErr.HTTPStatus, body.ErrorCode), nil
 			}
-			if !strings.Contains(br.Message, "Unsupported URL") {
-				return "", fmt.Errorf("400 message lacks %q: %s", "Unsupported URL", br.Message)
+			if out.RequestParameters.URL == "" {
+				return "", errors.New("success envelope lacks request_parameters")
 			}
-			return fmt.Sprintf("HTTP %d: %s", br.HTTPStatus, br.Message), nil
+			return fmt.Sprintf("provider=%s type=%s parse_status=%s",
+				out.RequestParameters.Provider, out.RequestParameters.Type, out.ParseStatus), nil
 		}},
 	}
 

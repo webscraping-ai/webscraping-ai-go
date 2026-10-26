@@ -358,20 +358,31 @@ func (c *Client) SerpLocations(ctx context.Context, opts *SerpLocationsOptions) 
 	return out, nil
 }
 
-// Data calls GET /data and returns structured JSON for a page on a
-// supported site (e.g. a YouTube video, TikTok profile, X post, LinkedIn
-// company, Instagram reel or Reddit thread). Priced per site (see
-// https://webscraping.ai/docs#data), including parse_failed and not_found
-// results; unsupported URLs and failed fetches are not charged.
+// Data calls GET /data and returns structured JSON for any public web
+// page. Sites with a dedicated parser return fixed fields; for other
+// sites an AI model learns each kind of page once. See
+// https://webscraping.ai/docs#data for pricing; failed fetches are not
+// charged.
 //
 // opts.URL must not be blank; nothing else about it is checked
-// client-side. More sites are added on the server. An unsupported URL
-// or page type returns a 400 that is not charged (*BadRequestError). Its
-// message lists what is supported.
+// client-side.
 //
-// Like /serp, /data ignores the scraping options, so DataOptions does
-// not embed CommonOptions. Use opts.Params for provider-specific
-// parameters this client doesn't have a field for.
+// The first request for a new kind of page also learns its structure,
+// so it can take up to about 45 seconds (keep Config.Timeout or the
+// context deadline above that). When learning takes longer, or another
+// request is already learning that site, the API returns HTTP 503
+// (error_code "structure_processing", not charged), surfaced as an
+// *APIError with HTTPStatus 503; the raw JSON, including retry_after
+// (seconds), is in ResponseBody. Retry after retry_after seconds, which
+// can return data. When no structured data can be found the API returns 422
+// (error_code "structure_unavailable", not charged), surfaced as an
+// *APIError with HTTPStatus 422; use Fields instead.
+//
+// DataOptions does not embed CommonOptions. Use opts.Params for
+// parameters this client doesn't have a field for (for pages without a
+// dedicated parser the API also accepts timeout, js_timeout, wait_for
+// and device). There are no js or proxy options: /data renders pages with
+// JavaScript where the site needs it and always uses proxy=auto.
 func (c *Client) Data(ctx context.Context, opts *DataOptions) (*DataResult, error) {
 	if opts == nil || strings.TrimSpace(opts.URL) == "" {
 		return nil, errors.New("webscrapingai: Data requires a non-blank opts.URL")

@@ -111,9 +111,9 @@ func main() {
         fmt.Println(r.Position, r.Title, r.Link)
     }
 
-    // Structured data for a page on a supported site
+    // Structured data for any public web page
     data, err := client.Data(ctx, &webscrapingai.DataOptions{
-        URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        URL: "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
     })
     if err != nil {
         log.Fatal(err)
@@ -252,27 +252,24 @@ for _, l := range locations {
 
 ## Structured data (/data)
 
-`Data` calls `GET /data` and returns structured JSON for a public page on a
-supported site. Pass the page's normal URL; the site (`Provider`) and page
-kind (`Type`) are detected on the server. Supported sites today include
-YouTube, TikTok, X/Twitter, LinkedIn, Instagram and Reddit (for example a
-YouTube video, a TikTok profile or a Reddit thread). More sites are added on
-the server without a client release, so the client never checks the URL
-beyond rejecting a blank one. An unsupported URL or page type returns a
-400 that is not charged (`*BadRequestError`). Its message lists what is
-supported. For other sites, use `Fields`.
+`Data` calls `GET /data` and returns structured JSON for any public web page.
+Pass the page's normal URL; the site the page belongs to (`Provider`, e.g.
+`toscrape.com`) and the kind of page (`Type`, e.g. `product`) are detected
+on the server. Some popular sites have dedicated parsers with fixed fields;
+for other sites an AI model learns the structure of each kind of page once,
+and after that pages of that kind return data straight away for every user.
+The client never checks the URL beyond rejecting a blank one.
 
-Priced per site (see [pricing](https://webscraping.ai/docs#data)), including
-results with `ParseStatus` `parse_failed` or `not_found`; unsupported URLs and
-failed fetches are not charged. None of the
-page-scraping options (JS, proxy, headers, …) apply.
+Priced per request (see [webscraping.ai/docs#data](https://webscraping.ai/docs#data)),
+including results with `ParseStatus` `parse_failed` or `not_found`. Failed
+fetches are not charged.
 
 ```go
 transcript := true
 res, err := client.Data(ctx, &webscrapingai.DataOptions{
-    URL:                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", // required
+    URL:                "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html", // required
     Country:            "us",         // optional two-letter proxy country, "us" by default
-    Transcript:         &transcript, // optional, YouTube videos only
+    Transcript:         &transcript, // optional, video pages on sites with a dedicated parser only
     TranscriptLanguage: "en",         // optional caption language, with Transcript
     // Params: map[string]string{"some_new_param": "value"}, // extra params, sent as-is
 })
@@ -280,42 +277,88 @@ if err != nil {
     log.Fatal(err)
 }
 
-fmt.Println(res.RequestParameters.Provider, res.RequestParameters.Type, res.ParseStatus) // youtube video ok
+fmt.Println(res.RequestParameters.Provider, res.RequestParameters.Type, res.ParseStatus) // toscrape.com product ok
 
 // Data is raw JSON (json.RawMessage) whose shape depends on Provider and
 // Type; it is nil when the API returned null. Decode it into a map or your
-// own struct.
-var video struct {
-    Title     string `json:"title"`
-    ViewCount int64  `json:"view_count"`
+// own struct, e.g. {"title": "A Light in the Attic", "price": 51.77, "currency": "GBP"}.
+var page struct {
+    Title    string  `json:"title"`
+    Price    float64 `json:"price"`
+    Currency string  `json:"currency"`
 }
 if res.Data != nil {
-    if err := json.Unmarshal(res.Data, &video); err != nil {
+    if err := json.Unmarshal(res.Data, &page); err != nil {
         log.Fatal(err)
     }
 }
-fmt.Println(video.Title)
+fmt.Println(page.Title)
 ```
 
 - `Country`: two-letter country code of the proxy used to fetch the page,
   `us` by default. The server rejects unknown codes with a 400.
-- `Transcript`: YouTube videos only. Also fetch the video's transcript into
-  `data.transcript`. It's null when no matching captions are available. If
-  the transcript fetch itself fails, the whole request fails with a 500 and
-  is not charged.
-- `TranscriptLanguage`: caption language to pick, e.g. `en` or `de`.
-  Without it, English is preferred, then the first available track. If the
-  video has no captions in that language, `data.transcript` is null.
+- `Transcript`: video pages on sites with a dedicated parser only. Also
+  fetch the video's transcript into `data.transcript`. It's null when no
+  matching captions are available. If the transcript fetch itself fails,
+  the whole request fails with a 500 and is not charged.
+- `TranscriptLanguage`: with `Transcript` set to true, the caption language
+  to pick, e.g. `en` or `de`. Without it, English is preferred, then the
+  first available track. If the video has no captions in that language,
+  `data.transcript` is null.
 
-`Provider`, `Type` and `ParseStatus` are plain strings: new values appear
-as the server adds sites. `ParseStatus` is `ok`, `parse_failed` (fetched
-but not parsed; `Data` may be nil or partial) or `not_found`.
+`Provider`, `Type` and `ParseStatus` are plain strings and open sets.
+`ParseStatus` is `ok`, `parse_failed` (fetched but not parsed; `Data` may
+be nil or partial) or `not_found`.
 
-`Params` sends extra query parameters as-is, so provider-specific options
-added on the server later work without upgrading the client. It rejects
-`api_key` and `url` keys, and the typed option names `country`,
-`transcript` and `transcript_language` (use `Country`, `Transcript` and
-`TranscriptLanguage`), whether or not those fields are set.
+`Params` sends extra query parameters as-is, so options added on the server
+later work without upgrading the client. For pages without a dedicated
+parser the API also accepts `timeout`, `js_timeout`, `wait_for` and
+`device`, which you can pass through `Params`; they don't apply to sites
+with a dedicated parser. There are no `js` or `proxy` options: `/data`
+renders pages with JavaScript where the site needs it and always uses
+`proxy=auto`.
+`Params` rejects `api_key` and `url` keys, and the typed option names
+`country`, `transcript` and `transcript_language` (use `Country`,
+`Transcript` and `TranscriptLanguage`), whether or not those fields are set.
+
+### Structure still being learned (503) and no structured data (422)
+
+On a site without a dedicated parser, the first request for a new kind of
+page also learns its structure, so it can take up to about 45 seconds; keep
+`Config.Timeout` (60 seconds by default) or your context deadline above
+that. When learning takes longer, or another request is already learning
+that site, the API returns HTTP 503 with
+`{"message": "...", "error_code": "structure_processing", "retry_after": 30}`
+(and a `Retry-After` header). It is not charged. The client returns it as a
+plain `*APIError` with `HTTPStatus == 503`; the raw JSON body (including
+`error_code` and `retry_after`) is in `ResponseBody`. Retry after
+`retry_after` seconds; the retry can return data (if learning failed
+meanwhile, it may learn again or return the 422 below):
+
+```go
+res, err := client.Data(ctx, opts)
+var apiErr *webscrapingai.APIError
+if errors.As(err, &apiErr) && apiErr.HTTPStatus == 503 {
+    var body struct {
+        RetryAfter int `json:"retry_after"`
+    }
+    _ = json.Unmarshal([]byte(apiErr.ResponseBody), &body)
+    time.Sleep(time.Duration(body.RetryAfter) * time.Second)
+    res, err = client.Data(ctx, opts)
+}
+```
+
+If no structured data can be found on the page (an empty page, a login
+wall), the API returns HTTP 422 with `error_code` `structure_unavailable`.
+It is not charged; use `Fields` instead. The client returns it as a plain
+`*APIError` with `HTTPStatus == 422`; the raw JSON body (including
+`error_code`) is in `ResponseBody`.
+
+Redirects within the same site (http→https, `www`, trailing slash) are
+followed; a redirect to another site returns a `*ServerError` (HTTP 500,
+`error_code` `target_redirect`, the target in the message), not charged.
+Starting too many new kinds of pages in an hour returns a `*RateLimitError`
+(HTTP 429, `error_code` `rate_limited`).
 
 ## Configuration
 
@@ -398,7 +441,7 @@ go test ./...           # all tests
 go vet ./...
 gofmt -l .              # any output → unformatted files
 
-# Live smoke (hits production and costs credits; see cmd/smoke):
+# Live smoke (hits production, uses real credits; see cmd/smoke):
 WEBSCRAPING_AI_API_KEY=... go run ./cmd/smoke
 ```
 

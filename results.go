@@ -161,8 +161,8 @@ type SerpLocation struct {
 
 // DataResult is the parsed response from Client.Data.
 //
-// Provider, Type and ParseStatus are plain strings, not enums: new sites,
-// page types and statuses are added on the server over time.
+// Provider, Type and ParseStatus are plain strings, not enums: they are
+// open sets.
 type DataResult struct {
 	// RequestParameters echoes the URL and how it was classified.
 	RequestParameters DataRequestParameters `json:"request_parameters"`
@@ -195,10 +195,9 @@ func (r *DataResult) UnmarshalJSON(b []byte) error {
 // DataRequestParameters mirrors DataResult.request_parameters.
 type DataRequestParameters struct {
 	URL string `json:"url"`
-	// Provider is the detected site, e.g. "youtube", "tiktok", "twitter",
-	// "linkedin", "instagram" or "reddit". An open set.
+	// Provider is the site the page belongs to, e.g. "toscrape.com".
+	// An open set.
 	Provider string `json:"provider"`
-	// Type is the detected page kind, e.g. "video", "channel", "profile",
-	// "post", "company" or "job". An open set.
+	// Type is the kind of page, e.g. "product". An open set.
 	Type string `json:"type"`
 }
