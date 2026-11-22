@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -196,13 +197,14 @@ func main() {
 			// structure_processing (learning outlasted the request), a
 			// 422 structure_unavailable, both as a plain *APIError, or a
 			// 500 timeout (extracting the data or loading the page ran out
-			// of time) as a *ServerError wrapping one. None of the
-			// non-success outcomes is charged.
+			// of time) or 500 ai_unavailable (the AI model is busy) as a
+			// *ServerError wrapping one. None of the non-success outcomes
+			// is charged.
 			out, err := client.Data(ctx, &webscrapingai.DataOptions{URL: "https://example.com/"})
 			if err != nil {
-				want := map[int]string{503: "structure_processing", 422: "structure_unavailable", 500: "timeout"}
+				want := map[int][]string{503: {"structure_processing"}, 422: {"structure_unavailable"}, 500: {"timeout", "ai_unavailable"}}
 				var apiErr *webscrapingai.APIError
-				if !errors.As(err, &apiErr) || want[apiErr.HTTPStatus] == "" {
+				if !errors.As(err, &apiErr) || len(want[apiErr.HTTPStatus]) == 0 {
 					return "", fmt.Errorf("expected success, 503, 422 or 500, got %w", err)
 				}
 				var body struct {
@@ -211,8 +213,8 @@ func main() {
 				if jerr := json.Unmarshal([]byte(apiErr.ResponseBody), &body); jerr != nil {
 					return "", fmt.Errorf("%d body is not JSON: %w", apiErr.HTTPStatus, jerr)
 				}
-				if body.ErrorCode != want[apiErr.HTTPStatus] {
-					return "", fmt.Errorf("%d error_code = %q, want %s", apiErr.HTTPStatus, body.ErrorCode, want[apiErr.HTTPStatus])
+				if !slices.Contains(want[apiErr.HTTPStatus], body.ErrorCode) {
+					return "", fmt.Errorf("%d error_code = %q, want one of %v", apiErr.HTTPStatus, body.ErrorCode, want[apiErr.HTTPStatus])
 				}
 				return fmt.Sprintf("HTTP %d %s", apiErr.HTTPStatus, body.ErrorCode), nil
 			}

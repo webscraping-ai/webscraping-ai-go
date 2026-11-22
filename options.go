@@ -9,18 +9,21 @@ type CommonOptions struct {
 	// Headers are custom HTTP headers forwarded to the target page.
 	Headers map[string]string
 	// Timeout is the maximum target-page-retrieval time in milliseconds
-	// (API default: 10000, max 30000).
+	// (API default: 10000, max 25000; larger values are capped).
 	Timeout *int
 	// JS toggles execution of on-page JavaScript via the headless
 	// browser. API default: true.
 	JS *bool
 	// JSTimeout is the maximum JS rendering time in milliseconds after
-	// page load (API default: 2000).
+	// page load (API default: 2000, max 20000).
 	JSTimeout *int
 	// WaitFor is a CSS selector to wait for before returning content.
 	WaitFor string
-	// Proxy selects the proxy pool: "datacenter", "residential", or
-	// "stealth". Empty string defers to the API's default.
+	// Proxy selects the proxy pool: "datacenter" (API default),
+	// "residential", "stealth", or "auto". "auto" tries datacenter, then
+	// residential, then stealth in one request and bills only the tier
+	// that worked; it can't be combined with CustomProxy. Empty string
+	// defers to the API's default.
 	Proxy string
 	// Country is the ISO country code for the proxy IP (e.g. "us").
 	Country string
@@ -43,7 +46,7 @@ type HTMLOptions struct {
 	URL string
 	// ReturnScriptResult returns the value of JSScript instead of HTML.
 	ReturnScriptResult *bool
-	// Format wraps the response: "json" returns {"html": "..."}, "text"
+	// Format wraps the response: "json" returns {"result": "..."}, "text"
 	// (default) returns the HTML body verbatim.
 	Format string
 }
@@ -65,7 +68,9 @@ type SelectedOptions struct {
 	CommonOptions
 	// URL is the target page URL. Required.
 	URL string
-	// Selector is the CSS selector to extract. Required.
+	// Selector is the CSS selector to extract. The client doesn't check
+	// it, but the API answers a missing selector, or one that matches
+	// nothing, with a 400 "Element not found".
 	Selector string
 	// Format selects the response shape: "json" or "text" (default).
 	Format string
@@ -180,8 +185,10 @@ type DataOptions struct {
 	// Sent as given; the client does not check the site or page type.
 	URL string
 	// Country is the two-letter country code of the proxy used to fetch
-	// the page, "us" by default. The server rejects unknown codes with a
-	// 400.
+	// the page. Without it, a page on a country site with a dedicated
+	// parser (e.g. uk.indeed.com) uses that site's country; everything
+	// else uses "us". Some dedicated parsers use a fixed route and ignore
+	// it. The server rejects unknown codes with a 400.
 	Country string
 	// Transcript: video pages on sites with a dedicated parser only.
 	// Also fetch the video's transcript into data.transcript. It's null

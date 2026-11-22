@@ -131,7 +131,7 @@ func NewClient(cfg *Config) (*Client, error) {
 }
 
 // HTML calls GET /html and returns the page HTML. When opts.Format is
-// "json" the returned string is the raw JSON envelope ({"html": "..."}).
+// "json" the returned string is the raw JSON envelope ({"result": "..."}).
 func (c *Client) HTML(ctx context.Context, opts *HTMLOptions) (string, error) {
 	if opts == nil || opts.URL == "" {
 		return "", errors.New("webscrapingai: HTML requires opts.URL")
@@ -171,8 +171,10 @@ func (c *Client) Text(ctx context.Context, opts *TextOptions) (string, error) {
 
 // Selected calls GET /selected and returns the matched element's HTML.
 //
-// opts.Selector is optional; when empty the API returns the whole-page
-// HTML (subject to the other options).
+// opts.Selector is not checked client-side (it's omitted from the query
+// when empty), but the API answers a missing selector, or one that
+// matches nothing, with a 400 "Element not found" (*BadRequestError).
+// It never returns the whole page.
 func (c *Client) Selected(ctx context.Context, opts *SelectedOptions) (string, error) {
 	if opts == nil || opts.URL == "" {
 		return "", errors.New("webscrapingai: Selected requires opts.URL")
@@ -243,7 +245,7 @@ func (c *Client) Question(ctx context.Context, opts *QuestionOptions) (string, e
 
 // Fields calls GET /ai/fields and returns the extracted fields.
 //
-// The API currently wraps the response under a "result" key — see
+// The API wraps the extracted values under a "result" key — see
 // FieldsResult.
 func (c *Client) Fields(ctx context.Context, opts *FieldsOptions) (*FieldsResult, error) {
 	if opts == nil || opts.URL == "" || len(opts.Fields) == 0 {

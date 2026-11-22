@@ -18,9 +18,9 @@ type AccountInfo struct {
 
 // FieldsResult is the parsed response from Client.Fields.
 //
-// The API currently wraps the extracted values under a "result" key, so
-// callers reach the data via .Result["title"] / .Result["price"] / etc.
-// This shape is upstream drift from the OpenAPI spec — see README.
+// The API wraps the extracted values under a "result" key, so callers
+// reach the data via .Result["title"] / .Result["price"] / etc. Every
+// value is a string or null; a null decodes to "".
 type FieldsResult struct {
 	Result map[string]string `json:"result"`
 }
@@ -198,6 +198,6 @@ type DataRequestParameters struct {
 	// Provider is the site the page belongs to, e.g. "toscrape.com".
 	// An open set.
 	Provider string `json:"provider"`
-	// Type is the kind of page, e.g. "product". An open set.
+	// Type is the kind of page, e.g. "book". An open set.
 	Type string `json:"type"`
 }
