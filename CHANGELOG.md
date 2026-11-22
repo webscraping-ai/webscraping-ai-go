@@ -6,7 +6,7 @@ documented in this file.
 ## [Unreleased]
 ### Changed
 
-- Docs: `DataOptions.Country` has no fixed `"us"` default. Without it, a page on a country site with a dedicated parser (e.g. uk.indeed.com) uses that site's country; everything else uses `us`.
+- Docs: `DataOptions.Country` has no fixed `"us"` default. Without it, a page on an Indeed country site (e.g. uk.indeed.com) uses that site's country; everything else uses `us`.
 - Docs: `Timeout` max is 25000 ms (larger values are capped); `JSTimeout` max is 20000 ms. `Proxy` also accepts `"auto"` (tries datacenter, then residential, then stealth; bills only the tier that worked; not with `CustomProxy`).
 - Docs: `Selected` without a selector, or with one that matches nothing, returns a 400 "Element not found"; it never returns the whole page. `Format: "json"` wraps the body as `{"result": ...}`, not `{"html": ...}`.
 - Docs: `/ai/fields`' `result` wrapper is no longer described as drift from the spec; values are strings or null. `GL` defaults to the country of `Location`, `Lat`/`Lon` or `UULE`, otherwise `us`. The `/data` example now shows type `book` and currency `£`. `/data` can return retryable 500s with `error_code` `timeout` or `ai_unavailable`, and `Question`/`Fields` a 500 `ai_unavailable` (not charged).

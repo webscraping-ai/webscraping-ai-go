@@ -185,10 +185,10 @@ type DataOptions struct {
 	// Sent as given; the client does not check the site or page type.
 	URL string
 	// Country is the two-letter country code of the proxy used to fetch
-	// the page. Without it, a page on a country site with a dedicated
-	// parser (e.g. uk.indeed.com) uses that site's country; everything
-	// else uses "us". Some dedicated parsers use a fixed route and ignore
-	// it. The server rejects unknown codes with a 400.
+	// the page. Without it, a page on an Indeed country site (e.g.
+	// uk.indeed.com) uses that site's country; everything else uses
+	// "us". Some dedicated parsers use a fixed route and ignore it. The
+	// server rejects unknown codes with a 400.
 	Country string
 	// Transcript: video pages on sites with a dedicated parser only.
 	// Also fetch the video's transcript into data.transcript. It's null
