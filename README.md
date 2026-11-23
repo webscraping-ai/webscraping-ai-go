@@ -19,7 +19,7 @@ The `/v4` suffix in the import path is Go's
 [semantic import versioning](https://go.dev/ref/mod#major-version-suffixes)
 convention for modules at major version ≥ 2. The version line is kept
 in lockstep with the other WebScraping.AI SDKs (Ruby, Python, PHP,
-JavaScript — all at 4.0.x).
+JavaScript, Java, .NET — all on the 4.x line).
 
 Requires Go 1.22 or newer. Zero runtime dependencies — uses the standard
 library's `net/http`.
@@ -155,7 +155,7 @@ page := 2
 serp, err := client.Serp(ctx, &webscrapingai.SerpOptions{
     Q:      "coffee machines", // required
     Engine: "google",          // optional, default "google" (only engine today)
-    GL:     "de",              // optional two-letter country, default "us"
+    GL:     "de",              // optional two-letter country; default: the country of Location, Lat/Lon or UULE, otherwise "us"
     HL:     "de",              // optional two-letter language, default "en"
     Page:   &page,             // optional, 1-based, 10 results per page (server rejects > 100 with a 400)
 })
@@ -254,7 +254,7 @@ for _, l := range locations {
 
 `Data` calls `GET /data` and returns structured JSON for any public web page.
 Pass the page's normal URL; the site the page belongs to (`Provider`, e.g.
-`toscrape.com`) and the kind of page (`Type`, e.g. `product`) are detected
+`toscrape.com`) and the kind of page (`Type`, e.g. `book`) are detected
 on the server. Some popular sites have dedicated parsers with fixed fields;
 for other sites an AI model learns the structure of each kind of page once,
 and after that pages of that kind return data straight away for every user.
@@ -268,7 +268,7 @@ fetches are not charged.
 transcript := true
 res, err := client.Data(ctx, &webscrapingai.DataOptions{
     URL:                "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html", // required
-    Country:            "us",         // optional two-letter proxy country, "us" by default
+    Country:            "us",         // optional two-letter proxy country (default below)
     Transcript:         &transcript, // optional, video pages on sites with a dedicated parser only
     TranscriptLanguage: "en",         // optional caption language, with Transcript
     // Params: map[string]string{"some_new_param": "value"}, // extra params, sent as-is
@@ -277,11 +277,11 @@ if err != nil {
     log.Fatal(err)
 }
 
-fmt.Println(res.RequestParameters.Provider, res.RequestParameters.Type, res.ParseStatus) // toscrape.com product ok
+fmt.Println(res.RequestParameters.Provider, res.RequestParameters.Type, res.ParseStatus) // toscrape.com book ok
 
 // Data is raw JSON (json.RawMessage) whose shape depends on Provider and
 // Type; it is nil when the API returned null. Decode it into a map or your
-// own struct, e.g. {"title": "A Light in the Attic", "price": 51.77, "currency": "GBP"}.
+// own struct, e.g. {"title": "A Light in the Attic", "price": 51.77, "currency": "£"}.
 var page struct {
     Title    string  `json:"title"`
     Price    float64 `json:"price"`
@@ -295,8 +295,11 @@ if res.Data != nil {
 fmt.Println(page.Title)
 ```
 
-- `Country`: two-letter country code of the proxy used to fetch the page,
-  `us` by default. The server rejects unknown codes with a 400.
+- `Country`: two-letter country code of the proxy used to fetch the page.
+  Without it, a page on an Indeed country site (e.g. `uk.indeed.com`)
+  uses that site's country; everything else uses `us`. Some dedicated
+  parsers use a fixed route and ignore it. The server rejects unknown
+  codes with a 400.
 - `Transcript`: video pages on sites with a dedicated parser only. Also
   fetch the video's transcript into `data.transcript`. It's null when no
   matching captions are available. If the transcript fetch itself fails,
@@ -358,7 +361,10 @@ Redirects within the same site (http→https, `www`, trailing slash) are
 followed; a redirect to another site returns a `*ServerError` (HTTP 500,
 `error_code` `target_redirect`, the target in the message), not charged.
 Starting too many new kinds of pages in an hour returns a `*RateLimitError`
-(HTTP 429, `error_code` `rate_limited`).
+(HTTP 429, `error_code` `rate_limited`). Two retryable `*ServerError`s (HTTP
+500, not charged) can also come back: `error_code` `timeout` (loading the
+page or extracting the data ran out of time) and `ai_unavailable` (the AI
+model is busy). Try again.
 
 ## Configuration
 
@@ -423,16 +429,19 @@ Each typed wrapper embeds `*APIError`, so `errors.As(err, &apiErr)` on
 `APIError.StatusCode`, `StatusMessage`, `Body`, and `ResponseBody` are
 populated when the API surfaces target-page errors as a 5xx.
 
-## Response shapes
+`Question` and `Fields` can also return a `*ServerError` (HTTP 500) with
+`error_code` `ai_unavailable` in `ResponseBody` when the AI model is busy.
+It is not charged; try again.
 
-Two endpoints return shapes that differ from the OpenAPI spec — they're
-upstream drift, reproduced by every official SDK:
+## Response shapes
 
 - **`Fields`** wraps the extracted fields under `Result`:
   `{Result: {"title": "...", "price": "..."}}`. Access via
-  `fields.Result["title"]`.
+  `fields.Result["title"]`. Every value is a string or null (a null
+  decodes to `""`).
 - **`SelectedMultiple`** returns `[][]string`, not the flat `[]string`
-  the spec implies — one outer wrapper containing all matches.
+  the spec implies — one outer wrapper containing all matches. This one
+  differs from the OpenAPI spec; every official SDK reproduces it.
 
 ## Development
 
